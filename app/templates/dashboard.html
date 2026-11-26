@@ -33,13 +33,13 @@
         .btn-logout { background: var(--sos-primary); color: #fff; text-decoration: none; padding: 0.42rem 0.95rem; border-radius: 8px; font-size: 0.8rem; font-weight: 600; }
         .btn-logout:hover { background: var(--sos-primary-hover); }
         .tabs-wrapper { background: #ffffff; border-bottom: 1px solid var(--border-color); box-shadow: 0 2px 8px rgba(46, 31, 20, 0.04); }
-        .tabs-nav { max-width: 1380px; margin: 0 auto; padding: 0 2rem; display: flex; gap: 0.4rem; overflow-x: auto; }
-        .tab-btn { background: transparent; border: none; border-bottom: 3px solid transparent; padding: 0.95rem 1.35rem; font-size: 0.92rem; font-weight: 600; color: var(--sos-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 0.55rem; white-space: nowrap; }
-        .tab-btn:hover { color: var(--sos-secondary); background: rgba(81, 52, 77, 0.04); }
-        .tab-btn.active { color: var(--sos-primary); border-bottom-color: var(--sos-primary); background: rgba(225, 119, 38, 0.05); }
-        .tab-count { background: rgba(81, 52, 77, 0.12); color: var(--sos-secondary); font-size: 0.72rem; padding: 0.15rem 0.55rem; border-radius: 99px; font-weight: 700; }
-        .tab-btn.active .tab-count { background: rgba(225, 119, 38, 0.16); color: var(--sos-primary); }
-        main.container { max-width: 1380px; margin: 0 auto; padding: 1.65rem 2rem 3rem; }
+        .tabs-nav { max-width: 1460px; margin: 0 auto; padding: 0.3rem 1.5rem 0; display: flex; flex-wrap: wrap; align-items: stretch; gap: 0.15rem; }
+        .tab-btn { flex: 1 1 auto; justify-content: center; background: transparent; border: none; border-bottom: 3px solid transparent; border-radius: 8px 8px 0 0; padding: 0.68rem 0.72rem; font-size: 0.83rem; font-weight: 600; color: var(--sos-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 0.38rem; white-space: nowrap; transition: background 0.15s, color 0.15s; }
+        .tab-btn:hover { color: var(--sos-secondary); background: rgba(81, 52, 77, 0.05); }
+        .tab-btn.active { color: var(--sos-primary); border-bottom-color: var(--sos-primary); background: rgba(225, 119, 38, 0.07); }
+        .tab-count { background: rgba(81, 52, 77, 0.12); color: var(--sos-secondary); font-size: 0.69rem; padding: 0.12rem 0.46rem; border-radius: 99px; font-weight: 700; line-height: 1.2; }
+        .tab-btn.active .tab-count { background: rgba(225, 119, 38, 0.18); color: var(--sos-primary); }
+        main.container { max-width: 1460px; margin: 0 auto; padding: 1.5rem 1.5rem 3rem; }
         .tab-panel { display: none; }
         .tab-panel.active { display: block; }
         .toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.85rem; margin-bottom: 1.25rem; }
@@ -109,7 +109,8 @@
         .modal-header { padding: 1rem 1.4rem; background: #2b2b36; display: flex; align-items: center; justify-content: space-between; }
         .modal-body { padding: 1.2rem; overflow-y: auto; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; line-height: 1.45; color: #d1d5db; }
         .btn-close { background: var(--sos-primary); color: #fff; border: none; padding: 0.45rem 0.95rem; border-radius: 8px; cursor: pointer; font-weight: 600; min-height: 40px; }
-        @media (max-width: 720px) { header.topbar, .tabs-nav, main.container { padding-left: 1rem; padding-right: 1rem; } .search-input { width: 100%; } }
+        @media (max-width: 1120px) { .tab-btn { flex: 1 1 calc(25% - 0.2rem); font-size: 0.8rem; padding: 0.58rem 0.5rem; } }
+        @media (max-width: 720px) { header.topbar, .tabs-nav, main.container { padding-left: 0.85rem; padding-right: 0.85rem; } .tab-btn { flex: 1 1 calc(50% - 0.2rem); } .search-input { width: 100%; } }
     </style>
 </head>
 <body>
@@ -132,14 +133,14 @@
 
     <div class="tabs-wrapper">
         <nav class="tabs-nav">
-            <button class="tab-btn active" data-tab="monitoreo" onclick="switchTab('monitoreo')">📊 Monitoreo</button>
-            <button class="tab-btn" data-tab="bases" onclick="switchTab('bases')">🗄️ Bases de Datos <span class="tab-count">{{ total_dbs }}</span></button>
-            <button class="tab-btn" data-tab="contenedores" onclick="switchTab('contenedores')">🐳 Contenedores <span class="tab-count">{{ running_containers }}/{{ total_containers }}</span></button>
-            <button class="tab-btn" data-tab="respaldos" onclick="switchTab('respaldos')">💾 Respaldos Automáticos</button>
-            <button class="tab-btn" data-tab="amenazas" onclick="switchTab('amenazas')">🚨 Seguridad y Amenazas</button>
-            <button class="tab-btn" data-tab="salud" onclick="switchTab('salud')">🩺 Salud y Diagnóstico</button>
-            <button class="tab-btn" data-tab="cumplimiento" onclick="switchTab('cumplimiento')">📋 Cumplimiento y Antivirus</button>
-            <button class="tab-btn" data-tab="auditoria" onclick="switchTab('auditoria')">🛡️ Auditoría y Acceso</button>
+            <button class="tab-btn active" data-tab="monitoreo" title="Monitor de CPU, RAM, Disco y Procesos" onclick="switchTab('monitoreo')">📊 Monitoreo</button>
+            <button class="tab-btn" data-tab="bases" title="Bases de Datos Odoo y Acceso SSO 1-Clic" onclick="switchTab('bases')">🗄️ Bases Odoo <span class="tab-count">{{ total_dbs }}</span></button>
+            <button class="tab-btn" data-tab="contenedores" title="Contenedores Docker y Logs" onclick="switchTab('contenedores')">🐳 Contenedores <span class="tab-count">{{ running_containers }}/{{ total_containers }}</span></button>
+            <button class="tab-btn" data-tab="respaldos" title="Respaldos Verificados, Restore-Test, age y Nube" onclick="switchTab('respaldos')">💾 Respaldos</button>
+            <button class="tab-btn" data-tab="amenazas" title="Guardián Activo: Firewall, Fuerza Bruta SSH/Odoo e Integridad" onclick="switchTab('amenazas')">🚨 Guardián</button>
+            <button class="tab-btn" data-tab="salud" title="Uptime 1 min, Certificados SSL y Escáner Web/DNS" onclick="switchTab('salud')">🩺 Salud y SSL</button>
+            <button class="tab-btn" data-tab="cumplimiento" title="Cumplimiento Normativo (Ley 1581 / ISO 27001) y Antivirus Filestore" onclick="switchTab('cumplimiento')">📋 Cumplimiento</button>
+            <button class="tab-btn" data-tab="auditoria" title="Bitácora de Auditoría, Sesiones Activas y 2FA" onclick="switchTab('auditoria')">🛡️ Auditoría y 2FA</button>
         </nav>
     </div>
 
