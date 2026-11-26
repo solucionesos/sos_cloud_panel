@@ -1,16 +1,18 @@
 services:
   sos_cloud_panel:
     build: ./app
-    container_name: sos_cloud_panel
+    container_name: ${PANEL_CONTAINER_NAME:-sos_cloud_panel}
     restart: always
     pid: "host"
     env_file:
       - .env
     ports:
-      - "127.0.0.1:8095:8000"
+      - "${PANEL_BIND_IP:-127.0.0.1}:${PANEL_PORT:-8095}:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /etc/nginx/sites-enabled:/host_nginx/sites-enabled:ro
+      - ${HOST_NGINX_SITES:-/etc/nginx/sites-enabled}:/host_nginx/sites-enabled:ro
       - /:/hostfs:ro
     networks:
       - pg_net
@@ -18,4 +20,4 @@ services:
 networks:
   pg_net:
     external: true
-    name: odoo-net
+    name: ${DOCKER_NETWORK:-odoo-net}
