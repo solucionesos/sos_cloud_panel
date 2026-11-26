@@ -199,6 +199,38 @@ def init_db() -> None:
                     current_sha256 TEXT NOT NULL DEFAULT '',
                     detail TEXT NOT NULL DEFAULT ''
                 );
+
+                CREATE TABLE IF NOT EXISTS filestore_scan_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    started_at INTEGER NOT NULL,
+                    finished_at INTEGER NOT NULL DEFAULT 0,
+                    scanned_dbs INTEGER NOT NULL DEFAULT 0,
+                    scanned_files INTEGER NOT NULL DEFAULT 0,
+                    threats_found INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'running'
+                );
+
+                CREATE TABLE IF NOT EXISTS filestore_findings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    detected_at INTEGER NOT NULL,
+                    db_name TEXT NOT NULL,
+                    store_fname TEXT NOT NULL,
+                    original_name TEXT NOT NULL DEFAULT '',
+                    declared_mime TEXT NOT NULL DEFAULT '',
+                    host_path TEXT NOT NULL,
+                    sha256 TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL DEFAULT 0,
+                    file_uid INTEGER NOT NULL DEFAULT 0,
+                    file_gid INTEGER NOT NULL DEFAULT 0,
+                    file_mode INTEGER NOT NULL DEFAULT 420,
+                    rule_name TEXT NOT NULL,
+                    severity TEXT NOT NULL DEFAULT 'critical',
+                    detail TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'detected',
+                    quarantine_path TEXT NOT NULL DEFAULT '',
+                    UNIQUE(host_path, sha256)
+                );
+                CREATE INDEX IF NOT EXISTS idx_fs_findings_status ON filestore_findings(status, detected_at DESC);
                 """
             )
             conn.commit()
@@ -908,6 +940,108 @@ def upsert_integrity_record(
 def remove_integrity_record(filepath: str) -> None:
     with get_conn() as conn:
         conn.execute("DELETE FROM host_integrity_baseline WHERE filepath = ?", (filepath,))
+
+
+# --- Fase 5: Filestore Antivirus Findings & Quarantine ---
+
+def create_filestore_scan_run() -> int:
+    now = int(time.time())
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO filestore_scan_runs (started_at, status) VALUES (?, 'running')",
+            (now,),
+        )
+        return int(cur.lastrowid)
+
+
+def finish_filestore_scan_run(run_id: int, scanned_dbs: int, scanned_files: int, threats_found: int, status: str = "ok") -> None:
+    now = int(time.time())
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE filestore_scan_runs
+            SET finished_at = ?, scanned_dbs = ?, scanned_files = ?, threats_found = ?, status = ?
+            WHERE id = ?
+            """,
+            (now, scanned_dbs, scanned_files, threats_found, status, run_id),
+        )
+
+
+def get_last_filestore_scan() -> Optional[Dict[str, Any]]:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM filestore_scan_runs ORDER BY id DESC LIMIT 1").fetchone()
+        return dict(row) if row else None
+
+
+def upsert_filestore_finding(
+    db_name: str,
+    store_fname: str,
+    original_name: str,
+    declared_mime: str,
+    host_path: str,
+    sha256: str,
+    size_bytes: int,
+    file_uid: int,
+    file_gid: int,
+    file_mode: int,
+    rule_name: str,
+    severity: str,
+    detail: str,
+) -> Optional[int]:
+    now = int(time.time())
+    with get_conn() as conn:
+        existing = conn.execute(
+            "SELECT id, status FROM filestore_findings WHERE host_path = ? AND sha256 = ?",
+            (host_path, sha256),
+        ).fetchone()
+        if existing:
+            # Si ya fue marcado como whitelisted/restored por el administrador, respetarlo
+            if existing["status"] == "ignored":
+                return None
+            return int(existing["id"])
+        cur = conn.execute(
+            """
+            INSERT INTO filestore_findings (
+                detected_at, db_name, store_fname, original_name, declared_mime,
+                host_path, sha256, size_bytes, file_uid, file_gid, file_mode,
+                rule_name, severity, detail, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'detected')
+            """,
+            (
+                now, db_name[:100], store_fname[:180], original_name[:200], declared_mime[:120],
+                host_path, sha256, size_bytes, file_uid, file_gid, file_mode,
+                rule_name[:100], severity[:20], detail[:350],
+            ),
+        )
+        return int(cur.lastrowid)
+
+
+def get_filestore_finding(finding_id: int) -> Optional[Dict[str, Any]]:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM filestore_findings WHERE id = ?", (int(finding_id),)).fetchone()
+        return dict(row) if row else None
+
+
+def update_filestore_finding_status(finding_id: int, status: str, quarantine_path: str = "") -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE filestore_findings SET status = ?, quarantine_path = ? WHERE id = ?",
+            (status, quarantine_path, int(finding_id)),
+        )
+
+
+def list_filestore_findings(status_filter: str = "") -> List[Dict[str, Any]]:
+    with get_conn() as conn:
+        if status_filter:
+            rows = conn.execute(
+                "SELECT * FROM filestore_findings WHERE status = ? ORDER BY detected_at DESC LIMIT 200",
+                (status_filter,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM filestore_findings ORDER BY CASE WHEN status='detected' THEN 0 WHEN status='quarantined' THEN 1 ELSE 2 END, detected_at DESC LIMIT 200"
+            ).fetchall()
+        return [dict(r) for r in rows]
 
 
 # --- Housekeeping ---

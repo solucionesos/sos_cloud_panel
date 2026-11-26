@@ -138,6 +138,7 @@
             <button class="tab-btn" data-tab="respaldos" onclick="switchTab('respaldos')">💾 Respaldos Automáticos</button>
             <button class="tab-btn" data-tab="amenazas" onclick="switchTab('amenazas')">🚨 Seguridad y Amenazas</button>
             <button class="tab-btn" data-tab="salud" onclick="switchTab('salud')">🩺 Salud y Diagnóstico</button>
+            <button class="tab-btn" data-tab="cumplimiento" onclick="switchTab('cumplimiento')">📋 Cumplimiento y Antivirus</button>
             <button class="tab-btn" data-tab="auditoria" onclick="switchTab('auditoria')">🛡️ Auditoría y Acceso</button>
         </nav>
     </div>
@@ -795,6 +796,98 @@
                 </div>
             </div>
         </section>
+
+        <section id="tab-cumplimiento" class="tab-panel">
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <h2 class="section-title">Cumplimiento Normativo (Ley 1581 / ISO 27001 / OWASP) y Antivirus Filestore</h2>
+                </div>
+                <div class="toolbar-right">
+                    <button class="btn-sso" style="min-height:36px;" onclick="exportComplianceReport('html')">🖨️ Informe / Certificado PDF</button>
+                    <button class="btn-secondary" style="min-height:36px;" onclick="exportComplianceReport('json')">📥 Evidencia JSON</button>
+                    <button class="btn-secondary" style="min-height:36px;padding:0.4rem 0.75rem;" onclick="fetchComplianceOverview()">🔄</button>
+                </div>
+            </div>
+
+            <div class="kpi-grid" id="compFrameworkCards">
+                <div class="kpi-card">
+                    <div class="kpi-head"><span class="kpi-label">🏆 Índice Global</span><span class="pill" id="cmpGlobalPill">--</span></div>
+                    <div class="kpi-value" id="cmpGlobalScore">-- %</div>
+                    <div class="kpi-sub" id="cmpGlobalSub">Evaluando 25 controles técnicos en vivo...</div>
+                </div>
+            </div>
+
+            <div class="proc-panel" style="margin-bottom:1.4rem;">
+                <div class="proc-toolbar">
+                    <div class="toolbar-left">
+                        <strong style="color:var(--sos-secondary);font-size:0.94rem;">🦠 Inspector Antimalware de Filestore Odoo (YARA-X + Magic Bytes)</strong>
+                        <span class="pill" id="fsScanStatusPill">Sin escanear</span>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn-chip" onclick="triggerFilestoreScanUI(7, this)">⚡ Escanear Recientes (7 días)</button>
+                        <button class="btn-sso" style="min-height:32px;padding:0.3rem 0.85rem;font-size:0.78rem;" onclick="triggerFilestoreScanUI(0, this)">🔬 Escaneo Profundo Completo</button>
+                    </div>
+                </div>
+                <div class="table-scroll" style="max-height:250px;">
+                    <table class="proc-table">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Base Odoo</th>
+                                <th>Adjunto / MIME</th>
+                                <th>Regla YARA-X / Magic</th>
+                                <th>Estado</th>
+                                <th>Detalle</th>
+                                <th>Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody id="fsFindingsTbody">
+                            <tr><td colspan="7" style="text-align:center;padding:1.15rem;color:var(--sos-muted);">Sin amenazas detectadas en el Filestore de Odoo.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="proc-panel">
+                <div class="proc-toolbar">
+                    <div class="toolbar-left">
+                        <strong style="color:var(--sos-secondary);font-size:0.95rem;">✅ Matriz de 25 Controles Técnicos Verificados</strong>
+                        <select id="cmpFwSelect" style="padding:0.42rem 0.7rem;border-radius:8px;border:1.5px solid var(--border-color);font-size:0.8rem;background:#fff;" onchange="renderComplianceTable()">
+                            <option value="">Todos los marcos normativos</option>
+                            <option value="LEY1581">Ley 1581 / SIC (Colombia)</option>
+                            <option value="ISO27001">ISO/IEC 27001:2022</option>
+                            <option value="OWASP">OWASP Top 10 / ASVS</option>
+                            <option value="CIS">CIS Controls v8 (IG1)</option>
+                        </select>
+                        <select id="cmpStatusSelect" style="padding:0.42rem 0.7rem;border-radius:8px;border:1.5px solid var(--border-color);font-size:0.8rem;background:#fff;" onchange="renderComplianceTable()">
+                            <option value="">Todos los estados</option>
+                            <option value="pass">Cumple (Óptimo)</option>
+                            <option value="warn">Parcial (Por mejorar)</option>
+                            <option value="fail">Brecha (No cumple)</option>
+                        </select>
+                    </div>
+                    <div class="toolbar-right">
+                        <span style="font-size:0.73rem;color:var(--sos-muted);" id="cmpHashBadge">SHA-256: --</span>
+                    </div>
+                </div>
+                <div class="table-scroll" style="max-height:520px;">
+                    <table class="proc-table">
+                        <thead>
+                            <tr>
+                                <th>Código</th>
+                                <th>Capa</th>
+                                <th>Control de Seguridad y Marcos</th>
+                                <th>Estado</th>
+                                <th>Evidencia Verificada</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cmpControlsTbody">
+                            <tr><td colspan="5" style="text-align:center;padding:1.4rem;color:var(--sos-muted);">Cargando matriz de cumplimiento...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
     </main>
 
     <div class="modal-backdrop" id="guardPolicyModal">
@@ -1054,6 +1147,7 @@
             if (tabName === 'respaldos') fetchBackupsOverview();
             if (tabName === 'amenazas') fetchGuardOverview();
             if (tabName === 'salud') fetchHealthOverview();
+            if (tabName === 'cumplimiento') fetchComplianceOverview();
             if (tabName === 'auditoria') refreshSecurityTab();
         }
         function toggleFold(itemEl) { itemEl.classList.toggle('open'); }
@@ -2338,6 +2432,175 @@
             } finally {
                 btn.disabled = false;
             }
+        }
+
+        let cachedComplianceMatrix = null;
+        let fsPollTimer = null;
+
+        async function fetchComplianceOverview() {
+            try {
+                const res = await fetch('/api/compliance/overview');
+                if (!res.ok) return;
+                const d = await res.json();
+                const m = d.matrix || {};
+                cachedComplianceMatrix = m;
+
+                const fws = Object.values(m.frameworks || {});
+                const cardsHtml = [
+                    `<div class="kpi-card" style="cursor:pointer;" onclick="document.getElementById('cmpFwSelect').value='';renderComplianceTable();">
+                        <div class="kpi-head"><span class="kpi-label">🏆 Índice Global</span><span class="pill pill-running">${m.counts?.passed ?? 0}/${m.counts?.total ?? 25}</span></div>
+                        <div class="kpi-value">${m.global_score_pct ?? 0}%</div>
+                        <div class="kpi-sub">${m.counts?.passed ?? 0} cumple • ${m.counts?.partial ?? 0} parcial • ${m.counts?.failed ?? 0} brecha</div>
+                    </div>`
+                ];
+                fws.forEach(fw => {
+                    cardsHtml.push(`
+                        <div class="kpi-card" style="cursor:pointer;" onclick="document.getElementById('cmpFwSelect').value='${escHtml(fw.key)}';renderComplianceTable();">
+                            <div class="kpi-head"><span class="kpi-label">📜 ${escHtml(fw.key)}</span><span class="pill" style="${scorePillStyle(fw.score_pct)}">${fw.score_pct}%</span></div>
+                            <div class="kpi-value" style="font-size:1.25rem;">${escHtml(fw.name)}</div>
+                            <div class="kpi-sub">${fw.passed}/${fw.total} óptimos • Clic para filtrar</div>
+                        </div>`);
+                });
+                document.getElementById('compFrameworkCards').innerHTML = cardsHtml.join('');
+                document.getElementById('cmpHashBadge').innerText = m.evidence_sha256 ? `Evidencia SHA-256: ${m.evidence_sha256.slice(0, 16)}…` : '';
+
+                renderComplianceTable();
+
+                // Filestore Antivirus
+                const fs = d.filestore || {};
+                const ls = fs.last_scan;
+                const fsPill = document.getElementById('fsScanStatusPill');
+                if (fs.is_scanning) {
+                    fsPill.className = 'pill';
+                    fsPill.style.background = 'rgba(245,158,11,0.2)';
+                    fsPill.style.color = '#92400e';
+                    fsPill.innerText = '⏳ Escaneando con YARA-X...';
+                } else if (ls) {
+                    fsPill.style = '';
+                    fsPill.className = ls.threats_found > 0 ? 'pill pill-stopped' : 'pill pill-running';
+                    fsPill.innerText = `${ls.scanned_files} archivos en ${ls.scanned_dbs} BDs (${fmtTs(ls.finished_at || ls.started_at)})`;
+                } else {
+                    fsPill.className = 'pill';
+                    fsPill.innerText = 'Pendiente primer escaneo';
+                }
+
+                const findings = fs.findings || [];
+                const fTbody = document.getElementById('fsFindingsTbody');
+                if (!findings.length) {
+                    fTbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:1.15rem;color:var(--sos-muted);">✅ Ningún archivo malicioso ni discrepancia de Magic Bytes detectada en los Filestores de Odoo.</td></tr>';
+                } else {
+                    fTbody.innerHTML = findings.map(f => {
+                        let stBadge = '<span class="pill pill-stopped">DETECTADO</span>';
+                        let actBtn = `<button class="btn-sso" style="min-height:28px;padding:0.2rem 0.65rem;font-size:0.73rem;background:#b91c1c;" onclick="quarantineFindingUI(${f.id})">🔒 Aislar en Cuarentena</button>`;
+                        if (f.status === 'quarantined') {
+                            stBadge = '<span class="pill" style="background:rgba(245,158,11,0.2);color:#92400e;">EN CUARENTENA</span>';
+                            actBtn = `<button class="btn-secondary" style="min-height:28px;padding:0.2rem 0.65rem;font-size:0.73rem;color:#047857;" onclick="restoreFindingUI(${f.id})">♻️ Restaurar</button>`;
+                        } else if (f.status === 'ignored') {
+                            stBadge = '<span class="pill pill-running">EXCEPCIÓN</span>';
+                            actBtn = '<span style="font-size:0.72rem;color:var(--sos-muted);">Restaurado</span>';
+                        }
+                        return `
+                            <tr>
+                                <td style="font-size:0.74rem;white-space:nowrap;">${fmtTs(f.detected_at)}</td>
+                                <td><strong>${escHtml(f.db_name)}</strong></td>
+                                <td style="font-size:0.75rem;">
+                                    <div><strong>${escHtml(f.original_name || f.store_fname)}</strong></div>
+                                    <div style="color:var(--sos-muted);font-size:0.7rem;">${escHtml(f.declared_mime || 'sin mime')} • ${(f.size_bytes/1024).toFixed(1)} KB</div>
+                                </td>
+                                <td><code>${escHtml(f.rule_name)}</code></td>
+                                <td>${stBadge}</td>
+                                <td style="font-size:0.75rem;color:#4e4640;">${escHtml(f.detail)}</td>
+                                <td>${actBtn}</td>
+                            </tr>`;
+                    }).join('');
+                }
+
+                clearTimeout(fsPollTimer);
+                if (fs.is_scanning && currentTab === 'cumplimiento') {
+                    fsPollTimer = setTimeout(fetchComplianceOverview, 3000);
+                }
+            } catch (e) {}
+        }
+
+        function renderComplianceTable() {
+            if (!cachedComplianceMatrix) return;
+            const fw = document.getElementById('cmpFwSelect').value;
+            const st = document.getElementById('cmpStatusSelect').value;
+            const list = (cachedComplianceMatrix.controls || []).filter(c => {
+                const okFw = !fw || (c.frameworks || []).includes(fw);
+                const okSt = !st || c.status === st;
+                return okFw && okSt;
+            });
+            const tbody = document.getElementById('cmpControlsTbody');
+            if (!list.length) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:1.3rem;color:var(--sos-muted);">No hay controles para el filtro seleccionado.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = list.map(c => {
+                const badge = c.status === 'pass'
+                    ? '<span class="pill pill-running">CUMPLE</span>'
+                    : (c.status === 'warn' ? '<span class="pill" style="background:rgba(245,158,11,0.2);color:#92400e;">PARCIAL</span>' : '<span class="pill pill-stopped">BRECHA</span>');
+                const fwBadges = (c.frameworks || []).map(k => `<span class="pill" style="font-size:0.68rem;padding:0.12rem 0.45rem;">${escHtml(k)}</span>`).join(' ');
+                return `
+                    <tr>
+                        <td><strong><code>${escHtml(c.id)}</code></strong></td>
+                        <td style="font-size:0.76rem;white-space:nowrap;">${escHtml(c.layer)}</td>
+                        <td>
+                            <div style="font-weight:600;margin-bottom:0.2rem;">${escHtml(c.title)}</div>
+                            <div>${fwBadges}</div>
+                        </td>
+                        <td>${badge}</td>
+                        <td style="font-size:0.76rem;color:#4e4640;">${escHtml(c.evidence)}</td>
+                    </tr>`;
+            }).join('');
+        }
+
+        function exportComplianceReport(fmt) {
+            const fw = document.getElementById('cmpFwSelect')?.value || '';
+            window.open(`/api/compliance/report?fmt=${encodeURIComponent(fmt)}&framework=${encodeURIComponent(fw)}`, '_blank');
+        }
+
+        async function triggerFilestoreScanUI(days, btn) {
+            const orig = btn.innerText;
+            btn.disabled = true;
+            try {
+                const res = await fetch('/api/filestore/scan', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({max_age_days: days})
+                });
+                const d = await res.json();
+                if (!res.ok || !d.ok) alert(d.message || 'Aviso');
+                await fetchComplianceOverview();
+            } finally {
+                btn.disabled = false; btn.innerText = orig;
+            }
+        }
+
+        async function quarantineFindingUI(findingId) {
+            const pw = prompt('Se aislará este archivo fuera del Filestore de Odoo (reversible en cualquier momento). Ingrese la clave maestra:');
+            if (!pw) return;
+            const res = await fetch(`/api/filestore/findings/${findingId}/quarantine`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({admin_password: pw})
+            });
+            const d = await res.json();
+            alert(d.message || d.detail || 'Resultado');
+            fetchComplianceOverview();
+        }
+
+        async function restoreFindingUI(findingId) {
+            const pw = prompt('¿Restaurar este archivo a su ruta y permisos originales en el Filestore y marcarlo como excepción? Ingrese la clave maestra:');
+            if (!pw) return;
+            const res = await fetch(`/api/filestore/findings/${findingId}/restore`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({admin_password: pw})
+            });
+            const d = await res.json();
+            alert(d.message || d.detail || 'Resultado');
+            fetchComplianceOverview();
         }
 
         document.addEventListener('DOMContentLoaded', () => {

@@ -105,6 +105,14 @@ def _safe_integrity_job() -> None:
         _logger.warning("Error en job host_integrity: %s", exc)
 
 
+def _safe_filestore_av_job() -> None:
+    try:
+        import filestore_scanner
+        filestore_scanner.scan_all_filestores(max_age_days=2)
+    except Exception as exc:
+        _logger.warning("Error en job filestore_av: %s", exc)
+
+
 def _initial_warmup() -> None:
     """Puebla el primer sondeo de Uptime, SSL, Integridad y Escáner al arrancar sin bloquear Uvicorn."""
     time.sleep(2)
@@ -132,13 +140,14 @@ def start_scheduler() -> BackgroundScheduler:
     sched.add_job(_safe_uptime_job, trigger="interval", minutes=1, id="uptime_monitor_1m", replace_existing=True, max_instances=1, coalesce=True)
     sched.add_job(_safe_thresholds_job, trigger="interval", minutes=5, id="host_thresholds_5m", replace_existing=True, max_instances=1, coalesce=True)
     sched.add_job(_safe_ssl_job, trigger="interval", hours=6, id="ssl_monitor_6h", replace_existing=True, max_instances=1, coalesce=True)
+    sched.add_job(_safe_filestore_av_job, trigger="interval", hours=6, id="filestore_av_6h", replace_existing=True, max_instances=1, coalesce=True)
     sched.add_job(_safe_scanner_job, trigger="interval", hours=12, id="security_scanner_12h", replace_existing=True, max_instances=1, coalesce=True)
     sched.start()
     _scheduler = sched
     sync_backup_schedule_job()
 
     threading.Thread(target=_initial_warmup, name="sos-health-warmup", daemon=True).start()
-    _logger.info("APScheduler iniciado con 7 tareas programadas.")
+    _logger.info("APScheduler iniciado con 8 tareas programadas.")
     return sched
 
 
