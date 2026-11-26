@@ -1,6 +1,7 @@
 """Monitoreo activo de Uptime HTTP/HTTPS (1 min), certificados SSL/TLS (6 h) y umbrales de disco del servidor."""
 from concurrent.futures import ThreadPoolExecutor
 import ipaddress
+import json
 import logging
 import socket
 import ssl
@@ -41,8 +42,37 @@ def _resolves_in_dns(domain: str) -> bool:
         return False
 
 
-def discover_monitored_targets() -> List[Dict[str, Any]]:
+def get_ignored_domains() -> List[str]:
+    raw = storage.get_setting("health_ignored_domains", "[]")
+    try:
+        arr = json.loads(raw or "[]")
+        return sorted({str(x).strip().lower() for x in arr if str(x).strip()})
+    except Exception:
+        return []
+
+
+def add_ignored_domain(domain: str) -> List[str]:
+    dom = _clean_domain(domain)
+    cur = set(get_ignored_domains())
+    if dom:
+        cur.add(dom)
+    out = sorted(cur)
+    storage.set_setting("health_ignored_domains", json.dumps(out))
+    return out
+
+
+def remove_ignored_domain(domain: str) -> List[str]:
+    dom = _clean_domain(domain)
+    cur = set(get_ignored_domains())
+    cur.discard(dom)
+    out = sorted(cur)
+    storage.set_setting("health_ignored_domains", json.dumps(out))
+    return out
+
+
+def discover_monitored_targets(include_ignored: bool = False) -> List[Dict[str, Any]]:
     """Retorna la lista desduplicada de dominios reales activos en el servidor (Nginx + BDs Odoo)."""
+    ignored_set = set() if include_ignored else set(get_ignored_domains())
     nginx_map = discovery.parse_nginx_domain_mapping()
     containers = discovery.discover_odoo_containers(nginx_map["port_to_domains"])
     databases = discovery.discover_odoo_databases(nginx_map["db_to_domain"])
@@ -112,7 +142,8 @@ def discover_monitored_targets() -> List[Dict[str, Any]]:
                 "is_odoo": True,
             }
 
-    return sorted(targets.values(), key=lambda x: (not x["is_odoo"], x["domain"]))
+    filtered = [t for t in targets.values() if t["domain"] not in ignored_set]
+    return sorted(filtered, key=lambda x: (not x["is_odoo"], x["domain"]))
 
 
 def _probe_single_target(target: Dict[str, Any]) -> Dict[str, Any]:

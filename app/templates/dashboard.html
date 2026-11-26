@@ -483,6 +483,7 @@
                 <div class="toolbar-right">
                     <button class="btn-secondary" style="min-height:36px;padding:0.42rem 0.85rem;" onclick="runHealthCheckNow(this)">🔄 Sondear Uptime/SSL</button>
                     <button class="btn-sso" style="min-height:36px;padding:0.42rem 0.95rem;" onclick="runSecurityScanAll(this)">🔍 Escanear Seguridad (Todos)</button>
+                    <button class="btn-secondary" style="min-height:36px;padding:0.42rem 0.85rem;" onclick="openIgnoredDomainsModal()">🔕 Excluidos</button>
                     <button class="btn-secondary" style="min-height:36px;padding:0.42rem 0.85rem;" onclick="openNotifyModal()">🔔 Configurar Alertas</button>
                 </div>
             </div>
@@ -529,7 +530,7 @@
                 <div class="proc-toolbar">
                     <strong style="color:var(--sos-secondary);font-size:0.93rem;">⚡ Historial de Incidentes y Alertas Automáticas</strong>
                 </div>
-                <div class="table-scroll" style="max-height:220px;">
+                <div class="table-scroll" style="max-height:260px;">
                     <table class="proc-table">
                         <thead>
                             <tr>
@@ -539,10 +540,11 @@
                                 <th>Incidente</th>
                                 <th>Apertura</th>
                                 <th>Detalle / Resolución</th>
+                                <th>Acción</th>
                             </tr>
                         </thead>
                         <tbody id="incidentsTbody">
-                            <tr><td colspan="6" style="text-align:center;padding:1.1rem;color:var(--sos-muted);">Sin incidentes registrados.</td></tr>
+                            <tr><td colspan="7" style="text-align:center;padding:1.1rem;color:var(--sos-muted);">Sin incidentes registrados.</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1039,6 +1041,16 @@
                     <button class="btn-sso" onclick="saveBackupPolicyUI(this)">💾 Guardar Política</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div class="modal-backdrop" id="fixModal">
+        <div class="modal-box" style="background:#fff;color:#2e1f14;max-width:620px;">
+            <div class="modal-header" style="background:#51344D;color:#fff;">
+                <strong id="fixModalTitle">🔧 Asistente de Reparación Automática (Fix)</strong>
+                <button class="btn-close" style="min-height:32px;padding:0.3rem 0.75rem;" onclick="closeFixModal()">✕</button>
+            </div>
+            <div id="fixModalBody" style="padding:1.25rem;overflow-y:auto;display:flex;flex-direction:column;gap:0.85rem;font-family:'Poppins',sans-serif;font-size:0.83rem;"></div>
         </div>
     </div>
 
@@ -1671,12 +1683,15 @@
                 const incs = d.incidents || [];
                 const incTbody = document.getElementById('incidentsTbody');
                 if (!incs.length) {
-                    incTbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:1.1rem;color:var(--sos-muted);">No se han registrado incidentes de disponibilidad, SSL ni disco.</td></tr>';
+                    incTbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:1.1rem;color:var(--sos-muted);">No se han registrado incidentes de disponibilidad, SSL ni disco.</td></tr>';
                 } else {
                     incTbody.innerHTML = incs.map(inc => {
                         const isOpen = inc.status === 'open';
                         const stBadge = isOpen ? '<span class="pill pill-stopped">ABIERTO</span>' : '<span class="pill pill-running">RESUELTO</span>';
                         const sevBadge = inc.severity === 'critical' ? '<span class="pill pill-stopped">CRÍTICO</span>' : '<span class="pill" style="background:rgba(245,158,11,0.18);color:#92400e;">AVISO</span>';
+                        const fixBtn = isOpen && ['ssl_expiring', 'ssl_invalid', 'uptime_down', 'disk_space'].includes(inc.kind)
+                            ? `<button class="btn-sso" style="min-height:28px;padding:0.2rem 0.7rem;font-size:0.75rem;" onclick="openFixModal('${escHtml(inc.kind)}', '${escHtml(inc.target)}', '', '${escHtml(inc.title)}')">🔧 Fix</button>`
+                            : '<span style="font-size:0.73rem;color:var(--sos-muted);">—</span>';
                         return `
                             <tr>
                                 <td>${stBadge}</td>
@@ -1685,6 +1700,7 @@
                                 <td><strong>${escHtml(inc.title)}</strong></td>
                                 <td style="font-size:0.75rem;white-space:nowrap;">${fmtTs(inc.opened_at)}</td>
                                 <td style="font-size:0.76rem;color:#4e4640;">${escHtml(inc.detail)}</td>
+                                <td>${fixBtn}</td>
                             </tr>`;
                     }).join('');
                 }
@@ -1715,20 +1731,24 @@
 
                     const findings = sec.findings || [];
                     const findingsHtml = findings.length ? `
-                        <div class="table-scroll" style="max-height:340px;border:1px solid var(--border-color);border-radius:10px;background:#fff;margin-bottom:0.85rem;">
+                        <div class="table-scroll" style="max-height:360px;border:1px solid var(--border-color);border-radius:10px;background:#fff;margin-bottom:0.85rem;">
                             <table class="proc-table">
-                                <thead><tr><th>Control</th><th>Evaluación</th><th>Estado</th><th>Puntos</th><th>Detalle / Recomendación</th></tr></thead>
+                                <thead><tr><th>Control</th><th>Evaluación</th><th>Estado</th><th>Puntos</th><th>Detalle / Recomendación</th><th>Acción</th></tr></thead>
                                 <tbody>
                                     ${findings.map(f => {
                                         const fBadge = f.status === 'pass'
                                             ? '<span class="pill pill-running">PASÓ</span>'
                                             : (f.status === 'fail' ? '<span class="pill pill-stopped">CRÍTICO</span>' : '<span class="pill" style="background:rgba(245,158,11,0.18);color:#92400e;">MEJORAR</span>');
+                                        const ctrlFix = f.status !== 'pass'
+                                            ? `<button class="btn-sso" style="min-height:27px;padding:0.18rem 0.65rem;font-size:0.73rem;" onclick="event.stopPropagation();openFixModal('', '${escHtml(t.domain)}', '${escHtml(f.control)}', '${escHtml(f.title)}')">🔧 Fix</button>`
+                                            : '<span style="color:#065f46;font-weight:700;font-size:0.78rem;">✓</span>';
                                         return `<tr>
                                             <td><code>${escHtml(f.control)}</code></td>
                                             <td><strong>${escHtml(f.title)}</strong></td>
                                             <td>${fBadge}</td>
                                             <td><strong>${escHtml(f.points)}</strong></td>
                                             <td style="font-size:0.76rem;color:#4e4640;">${escHtml(f.detail)}</td>
+                                            <td>${ctrlFix}</td>
                                         </tr>`;
                                     }).join('')}
                                 </tbody>
@@ -2602,6 +2622,231 @@
             const d = await res.json();
             alert(d.message || d.detail || 'Resultado');
             fetchComplianceOverview();
+        }
+
+        let currentFixActions = [];
+
+        function closeFixModal() {
+            document.getElementById('fixModal').classList.remove('active');
+        }
+
+        async function openFixModal(kind, target, control, title) {
+            document.getElementById('fixModalTitle').innerText = `🔧 Resolver: ${title || target}`;
+            const body = document.getElementById('fixModalBody');
+            body.innerHTML = '<div>Analizando opciones automáticas de reparación...</div>';
+            document.getElementById('fixModal').classList.add('active');
+
+            const url = `/api/remediation/diagnose?kind=${encodeURIComponent(kind)}&target=${encodeURIComponent(target)}&control=${encodeURIComponent(control)}`;
+            const res = await fetch(url);
+            const d = await res.json();
+            currentFixActions = d.actions || [];
+
+            if (!currentFixActions.length) {
+                body.innerHTML = `
+                    <div style="background:#faf8f6;padding:0.9rem;border-radius:10px;border:1px solid var(--border-color);">
+                        Este hallazgo requiere revisión manual en su aplicación o proveedor externo.
+                    </div>
+                    <div style="display:flex;justify-content:flex-end;"><button class="btn-secondary" onclick="closeFixModal()">Cerrar</button></div>`;
+                return;
+            }
+
+            const needsPass = currentFixActions.some(a => a.action_id !== 'dns_assistant');
+            body.innerHTML = `
+                <div style="font-size:0.8rem;color:var(--sos-muted);">Objetivo: <strong><code>${escHtml(target)}</code></strong> ${control ? '• Control: <code>' + escHtml(control) + '</code>' : ''}</div>
+                ${needsPass ? `
+                <div class="field-group">
+                    <label>Clave maestra del panel (requerida para aplicar cambios en el servidor):</label>
+                    <input type="password" id="fixMasterPass" placeholder="••••••••••••" autocomplete="off">
+                </div>` : ''}
+                <div style="display:flex;flex-direction:column;gap:0.7rem;" id="fixActionsContainer">
+                    ${currentFixActions.map((act, idx) => `
+                        <div style="border:1.5px solid var(--border-color);border-radius:11px;padding:0.9rem;background:#faf8f6;display:flex;flex-direction:column;gap:0.55rem;">
+                            <div style="font-weight:700;color:var(--sos-dark);font-size:0.88rem;">${escHtml(act.label)}</div>
+                            <div style="font-size:0.78rem;color:#4e4640;line-height:1.45;">${escHtml(act.description)}</div>
+                            <div>
+                                <button class="${act.style === 'primary' ? 'btn-sso' : 'btn-secondary'}" style="min-height:35px;padding:0.4rem 0.95rem;" onclick="runSelectedFixAction(${idx}, this)">
+                                    ▶ Ejecutar esta solución
+                                </button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+                <div id="fixFeedbackBox" style="display:none;padding:0.75rem 0.9rem;border-radius:9px;font-size:0.81rem;line-height:1.45;"></div>
+                <div style="display:flex;justify-content:flex-end;">
+                    <button class="btn-secondary" onclick="closeFixModal()">Cerrar</button>
+                </div>`;
+            setTimeout(() => document.getElementById('fixMasterPass')?.focus(), 50);
+        }
+
+        async function runSelectedFixAction(idx, btn) {
+            const act = currentFixActions[idx];
+            if (!act) return;
+            const pwEl = document.getElementById('fixMasterPass');
+            const pw = pwEl ? pwEl.value : '';
+            const fb = document.getElementById('fixFeedbackBox');
+
+            if (act.action_id !== 'dns_assistant' && !pw) {
+                alert('Ingrese primero la Clave Maestra del panel arriba.');
+                pwEl?.focus();
+                return;
+            }
+
+            // Flujo especial de 2 pasos para Wildcard SSL DNS-01
+            if (act.action_id === 'ssl_wildcard_wizard') {
+                await startWildcardWizardUI(act.params.base_domain, pw, btn);
+                return;
+            }
+
+            const orig = btn.innerText;
+            btn.disabled = true; btn.innerText = '⏳ Aplicando corrección...';
+            fb.style.display = 'none';
+            try {
+                const res = await fetch('/api/remediation/execute', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({action_id: act.action_id, params: act.params, admin_password: pw})
+                });
+                const d = await res.json();
+                fb.style.display = 'block';
+                fb.style.background = (res.ok && d.ok) ? '#ecfdf5' : '#fde8e8';
+                fb.style.color = (res.ok && d.ok) ? '#065f46' : '#9b1c1c';
+
+                if (d.dns_records) {
+                    fb.innerHTML = `
+                        <div style="font-weight:700;margin-bottom:0.45rem;">${escHtml(d.message)}</div>
+                        ${d.dns_records.map(r => `
+                            <div style="background:#1e1e24;color:#f9fafb;padding:0.55rem 0.75rem;border-radius:7px;margin-bottom:0.4rem;font-family:monospace;font-size:0.76rem;">
+                                <div><strong>Host:</strong> ${escHtml(r.host)} &nbsp;|&nbsp; <strong>Tipo:</strong> ${escHtml(r.type)}</div>
+                                <div style="margin-top:3px;word-break:break-all;color:#fcd34d;">${escHtml(r.value)}</div>
+                            </div>`).join('')}`;
+                } else {
+                    fb.innerText = d.message || d.detail || 'Operación finalizada.';
+                }
+                if (res.ok && d.ok && act.action_id !== 'dns_assistant') {
+                    await fetchHealthOverview();
+                }
+            } finally {
+                btn.disabled = false; btn.innerText = orig;
+            }
+        }
+
+        async function startWildcardWizardUI(baseDomain, pw, btn) {
+            const fb = document.getElementById('fixFeedbackBox');
+            const orig = btn.innerText;
+            btn.disabled = true; btn.innerText = '⏳ Solicitando desafío a Let’s Encrypt...';
+            fb.style.display = 'none';
+            try {
+                const res = await fetch('/api/remediation/execute', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({action_id: 'ssl_wildcard_start', params: {base_domain: baseDomain}, admin_password: pw})
+                });
+                const d = await res.json();
+                if (!res.ok || !d.ok) {
+                    fb.style.display = 'block';
+                    fb.style.background = '#fde8e8'; fb.style.color = '#9b1c1c';
+                    fb.innerText = d.message || d.detail || 'Error iniciando desafío DNS.';
+                    return;
+                }
+                renderWildcardStepBox(baseDomain, d.txt_host, d.txt_values, d.message);
+            } finally {
+                btn.disabled = false; btn.innerText = orig;
+            }
+        }
+
+        function renderWildcardStepBox(baseDomain, txtHost, txtValues, message) {
+            const fb = document.getElementById('fixFeedbackBox');
+            fb.style.display = 'block';
+            fb.style.background = '#faf8f6';
+            fb.style.color = '#2e1f14';
+            fb.style.border = '1.5px solid var(--sos-primary)';
+            fb.innerHTML = `
+                <div style="font-weight:700;color:var(--sos-secondary);margin-bottom:0.45rem;">🌐 ${escHtml(message)}</div>
+                <div style="font-size:0.77rem;margin-bottom:0.35rem;">Nombre / Host del registro TXT: <code><strong>${escHtml(txtHost)}</strong></code></div>
+                ${(txtValues || []).map(v => `
+                    <div style="display:flex;align-items:center;gap:0.5rem;background:#1e1e24;color:#fcd34d;padding:0.6rem 0.8rem;border-radius:8px;font-family:monospace;font-size:0.82rem;margin-bottom:0.5rem;word-break:break-all;">
+                        <span style="flex:1;">${escHtml(v)}</span>
+                        <button class="btn-secondary" style="min-height:28px;padding:0.2rem 0.6rem;font-size:0.73rem;" onclick="navigator.clipboard.writeText('${escHtml(v)}');this.innerText='✓ Copiado'">📋 Copiar</button>
+                    </div>`).join('')}
+                <div id="wcStepStatus" style="font-size:0.77rem;color:#92400e;margin-bottom:0.55rem;">Cuando haya guardado el TXT en su proveedor DNS, pulse el botón para verificar propagación y emitir el certificado:</div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                    <button class="btn-sso" onclick="completeWildcardStepUI('${escHtml(baseDomain)}', false, this)">✅ Ya publiqué el TXT — Verificar y Renovar</button>
+                    <button class="btn-secondary" onclick="completeWildcardStepUI('${escHtml(baseDomain)}', true, this)" title="Continuar sin esperar caché DNS de Google/Cloudflare">Forzar validación directa</button>
+                </div>`;
+        }
+
+        async function completeWildcardStepUI(baseDomain, force, btn) {
+            const pw = document.getElementById('fixMasterPass')?.value || '';
+            const stEl = document.getElementById('wcStepStatus');
+            const orig = btn.innerText;
+            btn.disabled = true; btn.innerText = '⏳ Verificando DNS y renovando...';
+            try {
+                const res = await fetch('/api/remediation/execute', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({action_id: 'ssl_wildcard_complete', params: {base_domain: baseDomain, force}, admin_password: pw})
+                });
+                const d = await res.json();
+                if (d.needs_wait) {
+                    if (stEl) { stEl.style.color = '#b91c1c'; stEl.innerText = '⏳ ' + d.message; }
+                    return;
+                }
+                if (d.second_token_required) {
+                    renderWildcardStepBox(baseDomain, d.txt_host, d.txt_values, d.message);
+                    return;
+                }
+                const fb = document.getElementById('fixFeedbackBox');
+                fb.style.border = 'none';
+                fb.style.background = (res.ok && d.ok) ? '#ecfdf5' : '#fde8e8';
+                fb.style.color = (res.ok && d.ok) ? '#065f46' : '#9b1c1c';
+                fb.innerHTML = `<strong>${escHtml(d.message || d.detail || 'Resultado')}</strong>`;
+                if (res.ok && d.ok) await fetchHealthOverview();
+            } finally {
+                btn.disabled = false; btn.innerText = orig;
+            }
+        }
+
+        async function openIgnoredDomainsModal() {
+            document.getElementById('fixModalTitle').innerText = '🔕 Dominios Excluidos del Monitoreo';
+            const body = document.getElementById('fixModalBody');
+            body.innerHTML = '<div>Cargando...</div>';
+            document.getElementById('fixModal').classList.add('active');
+            const res = await fetch('/api/remediation/ignored-domains');
+            const d = await res.json();
+            const list = d.ignored_domains || [];
+            if (!list.length) {
+                body.innerHTML = `
+                    <div style="color:var(--sos-muted);">No hay dominios excluidos actualmente.</div>
+                    <div style="display:flex;justify-content:flex-end;"><button class="btn-secondary" onclick="closeFixModal()">Cerrar</button></div>`;
+                return;
+            }
+            body.innerHTML = `
+                <div class="field-group">
+                    <label>Clave maestra del panel (para reincorporar dominios):</label>
+                    <input type="password" id="restoreDomPass" placeholder="••••••••••••">
+                </div>
+                <div style="display:flex;flex-direction:column;gap:0.45rem;">
+                    ${list.map(dom => `
+                        <div style="display:flex;justify-content:space-between;align-items:center;padding:0.55rem 0.8rem;background:#faf8f6;border-radius:8px;border:1px solid var(--border-color);">
+                            <code><strong>${escHtml(dom)}</strong></code>
+                            <button class="btn-secondary" style="min-height:28px;padding:0.2rem 0.65rem;font-size:0.75rem;color:#047857;" onclick="restoreIgnoredDomainUI('${escHtml(dom)}')">♻️ Volver a monitorear</button>
+                        </div>`).join('')}
+                </div>
+                <div style="display:flex;justify-content:flex-end;"><button class="btn-secondary" onclick="closeFixModal()">Cerrar</button></div>`;
+        }
+
+        async function restoreIgnoredDomainUI(domain) {
+            const pw = document.getElementById('restoreDomPass')?.value || '';
+            if (!pw) { alert('Ingrese la clave maestra.'); return; }
+            const res = await fetch('/api/remediation/execute', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action_id: 'restore_domain', params: {domain}, admin_password: pw})
+            });
+            const d = await res.json();
+            if (!res.ok || !d.ok) { alert(d.message || d.detail || 'Error'); return; }
+            await openIgnoredDomainsModal();
+            await fetchHealthOverview();
         }
 
         document.addEventListener('DOMContentLoaded', () => {

@@ -42,6 +42,7 @@ import backup_routes  # noqa: E402
 import compliance_routes  # noqa: E402
 import guard_routes  # noqa: E402
 import health_routes  # noqa: E402
+import remediation_routes  # noqa: E402
 
 app.include_router(admin_actions_router)
 app.include_router(backups_router)
@@ -50,6 +51,7 @@ app.include_router(compliance_routes.router)
 app.include_router(guard_routes.router)
 app.include_router(security_auth.router)
 app.include_router(health_routes.router)
+app.include_router(remediation_routes.router)
 
 if os.path.isdir("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
