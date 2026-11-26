@@ -442,7 +442,7 @@ def _discover_instance_databases(inst: Dict[str, Any], db_to_domain: Dict[str, s
                    pg_size_pretty(pg_database_size(d.datname)) AS size_pretty,
                    pg_database_size(d.datname) AS size_bytes
             FROM pg_database d
-            WHERE d.datistemplate = false AND d.datname NOT IN ('postgres')
+            WHERE d.datistemplate = false AND d.datname NOT IN ('postgres') AND d.datname NOT LIKE '_sos_verify_%'
             ORDER BY d.datname
             """,
             client=client,

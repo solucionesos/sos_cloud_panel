@@ -135,6 +135,7 @@
             <button class="tab-btn active" data-tab="monitoreo" onclick="switchTab('monitoreo')">📊 Monitoreo</button>
             <button class="tab-btn" data-tab="bases" onclick="switchTab('bases')">🗄️ Bases de Datos <span class="tab-count">{{ total_dbs }}</span></button>
             <button class="tab-btn" data-tab="contenedores" onclick="switchTab('contenedores')">🐳 Contenedores <span class="tab-count">{{ running_containers }}/{{ total_containers }}</span></button>
+            <button class="tab-btn" data-tab="respaldos" onclick="switchTab('respaldos')">💾 Respaldos Automáticos</button>
             <button class="tab-btn" data-tab="salud" onclick="switchTab('salud')">🩺 Salud y Diagnóstico</button>
             <button class="tab-btn" data-tab="auditoria" onclick="switchTab('auditoria')">🛡️ Auditoría y Acceso</button>
         </nav>
@@ -559,7 +560,212 @@
                 <div style="text-align:center;padding:1.5rem;color:var(--sos-muted);background:#fff;border-radius:12px;border:1px solid var(--border-color);">Cargando estado de dominios...</div>
             </div>
         </section>
+
+        <section id="tab-respaldos" class="tab-panel">
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <h2 class="section-title">Respaldos Verificados, Cifrado age y Almacenamiento en Nube</h2>
+                </div>
+                <div class="toolbar-right">
+                    <select id="bkpTargetDbSelect" style="padding:0.5rem 0.75rem;border-radius:8px;border:1.5px solid var(--border-color);font-size:0.82rem;background:#fff;">
+                        <option value="">Todas las bases configuradas</option>
+                    </select>
+                    <button class="btn-sso" style="min-height:38px;" onclick="triggerManagedBackupNow(this)">▶ Ejecutar Respaldo Verificado</button>
+                    <button class="btn-secondary" style="min-height:38px;" onclick="openBackupPolicyModal()">⚙️ Configurar Política y Destinos</button>
+                    <button class="btn-secondary" style="min-height:38px;padding:0.4rem 0.75rem;" onclick="fetchBackupsOverview()">🔄</button>
+                </div>
+            </div>
+
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-head">
+                        <span class="kpi-label">✅ Verificados (30d)</span>
+                        <span class="pill pill-running" id="bkpStatusBadge">Listo</span>
+                    </div>
+                    <div class="kpi-value" id="bkpVerifiedVal">--</div>
+                    <div class="kpi-sub" id="bkpLastOkSub">Último exitoso: --</div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-head">
+                        <span class="kpi-label">⏰ Programación & Formato</span>
+                        <span class="pill" id="bkpSchedPill">--</span>
+                    </div>
+                    <div class="kpi-value" id="bkpSchedVal" style="font-size:1.35rem;">--</div>
+                    <div class="kpi-sub" id="bkpEncSub">Restore-Test: -- • Cifrado: --</div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-head">
+                        <span class="kpi-label">☁️ Destinos Habilitados</span>
+                        <span class="pill pill-version" id="bkpRemotesDetectedPill">rclone</span>
+                    </div>
+                    <div id="bkpDestPills" style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-top:0.2rem;"></div>
+                    <div class="kpi-sub" id="bkpDestSub">Local, Google Drive (rclone) o Bucket S3/R2.</div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-head">
+                        <span class="kpi-label">💿 Retención en Servidor</span>
+                        <span class="pill" id="bkpLocalCountPill">0 archivos</span>
+                    </div>
+                    <div class="kpi-value" id="bkpLocalSizeVal">0 MB</div>
+                    <div class="kpi-sub" id="bkpLocalRetSub">Carpeta local ./backups con rotación automática.</div>
+                </div>
+            </div>
+
+            <div class="proc-panel" style="margin-bottom:1.4rem;">
+                <div class="proc-toolbar">
+                    <strong style="color:var(--sos-secondary);font-size:0.95rem;">🧪 Historial de Respaldos y Pruebas de Restauración (Restore-Test)</strong>
+                </div>
+                <div class="table-scroll" style="max-height:380px;">
+                    <table class="proc-table">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Base de Datos</th>
+                                <th>Origen</th>
+                                <th>Archivo / Tamaño</th>
+                                <th>Prueba de Restauración</th>
+                                <th>Destinos</th>
+                                <th>Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bkpRunsTbody">
+                            <tr><td colspan="7" style="text-align:center;padding:1.3rem;color:var(--sos-muted);">Cargando historial de respaldos...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="proc-panel">
+                <div class="proc-toolbar">
+                    <strong style="color:var(--sos-secondary);font-size:0.93rem;">📂 Copias Locales Disponibles en el Servidor</strong>
+                </div>
+                <div class="table-scroll" style="max-height:280px;">
+                    <table class="proc-table">
+                        <thead>
+                            <tr>
+                                <th>Base de Datos</th>
+                                <th>Archivo</th>
+                                <th>Tamaño</th>
+                                <th>Fecha</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bkpLocalFilesTbody">
+                            <tr><td colspan="5" style="text-align:center;padding:1.1rem;color:var(--sos-muted);">Sin copias locales almacenadas.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
     </main>
+
+    <div class="modal-backdrop" id="backupPolicyModal">
+        <div class="modal-box" style="background:#fff;color:#2e1f14;max-width:680px;">
+            <div class="modal-header" style="background:#51344D;color:#fff;">
+                <strong>⚙️ Política de Respaldos, Cifrado age y Destinos (Local + rclone + S3/R2)</strong>
+                <button class="btn-close" style="min-height:32px;padding:0.3rem 0.75rem;" onclick="closeBackupPolicyModal()">✕</button>
+            </div>
+            <div style="padding:1.25rem;overflow-y:auto;display:flex;flex-direction:column;gap:0.9rem;font-family:'Poppins',sans-serif;font-size:0.82rem;">
+
+                <div style="border:1px solid var(--border-color);border-radius:10px;padding:0.85rem;background:#faf8f6;">
+                    <label style="display:flex;align-items:center;gap:0.5rem;font-weight:700;color:var(--sos-secondary);margin-bottom:0.6rem;cursor:pointer;">
+                        <input type="checkbox" id="bpSchedEnabled" style="width:auto;"> Activar ejecución diaria automática (UTC)
+                    </label>
+                    <div class="fold-body-grid" style="margin-bottom:0.5rem;">
+                        <div class="field-group">
+                            <label>Hora diaria UTC (0–23):</label>
+                            <input type="number" id="bpHour" min="0" max="23" value="2">
+                        </div>
+                        <div class="field-group">
+                            <label>Minuto (0–59):</label>
+                            <input type="number" id="bpMinute" min="0" max="59" value="0">
+                        </div>
+                        <div class="field-group">
+                            <label>Formato del respaldo:</label>
+                            <select id="bpFormat">
+                                <option value="zip">ZIP Completo (SQL + Filestore + Manifest)</option>
+                                <option value="dump">DUMP PostgreSQL (-Fc comprimido, sin Filestore)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <label style="display:flex;align-items:center;gap:0.5rem;font-weight:600;cursor:pointer;">
+                        <input type="checkbox" id="bpVerifyRestore" style="width:auto;" checked>
+                        Ejecutar Restore-Test real en BD temporal PostgreSQL antes de dar por válido el backup
+                    </label>
+                </div>
+
+                <div style="border:1px solid var(--border-color);border-radius:10px;padding:0.85rem;background:#faf8f6;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
+                        <label style="display:flex;align-items:center;gap:0.5rem;font-weight:700;color:var(--sos-secondary);cursor:pointer;">
+                            <input type="checkbox" id="bpEncEnabled" style="width:auto;"> Cifrar respaldos con llave pública age (.age)
+                        </label>
+                        <button type="button" class="btn-chip" onclick="generateAgeKeypairUI()">🔑 Generar par de llaves age</button>
+                    </div>
+                    <div class="field-group">
+                        <label>Llave pública age (age1... — se usa para cifrar en el servidor):</label>
+                        <input type="text" id="bpAgePubKey" placeholder="age1...">
+                    </div>
+                    <div id="ageKeyBox" style="display:none;margin-top:0.6rem;background:#1e1e24;color:#f9fafb;padding:0.8rem;border-radius:8px;font-size:0.76rem;"></div>
+                </div>
+
+                <div style="border:1px solid var(--border-color);border-radius:10px;padding:0.85rem;background:#faf8f6;">
+                    <label style="display:flex;align-items:center;gap:0.5rem;font-weight:700;color:var(--sos-secondary);margin-bottom:0.55rem;cursor:pointer;">
+                        <input type="checkbox" id="bpLocalEnabled" style="width:auto;"> Destino 1: Copia Local en Servidor (./backups)
+                    </label>
+                    <div class="field-group">
+                        <label>Copias locales a conservar por BD (ponga 0 para borrar local tras subir a rclone/S3):</label>
+                        <input type="number" id="bpLocalRet" min="0" max="60" value="2">
+                    </div>
+                </div>
+
+                <div style="border:1px solid var(--border-color);border-radius:10px;padding:0.85rem;background:#faf8f6;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.55rem;">
+                        <label style="display:flex;align-items:center;gap:0.5rem;font-weight:700;color:var(--sos-secondary);cursor:pointer;">
+                            <input type="checkbox" id="bpRcloneEnabled" style="width:auto;"> Destino 2: rclone (Google Drive / OneDrive / Nube)
+                        </label>
+                        <button type="button" class="btn-chip" onclick="testBackupDestUI('rclone', this)">🔌 Probar rclone</button>
+                    </div>
+                    <div class="fold-body-grid" style="margin-bottom:0;">
+                        <div class="field-group"><label>Remoto rclone (ej. gdrive_odoo:):</label><input type="text" id="bpRcloneRemote" placeholder="gdrive_odoo:"></div>
+                        <div class="field-group"><label>Carpeta destino en remoto:</label><input type="text" id="bpRclonePath" value="Backup/sos_cloud_panel"></div>
+                        <div class="field-group"><label>Retención en nube (días):</label><input type="number" id="bpRcloneRet" min="0" max="3650" value="14"></div>
+                    </div>
+                </div>
+
+                <div style="border:1px solid var(--border-color);border-radius:10px;padding:0.85rem;background:#faf8f6;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.55rem;">
+                        <label style="display:flex;align-items:center;gap:0.5rem;font-weight:700;color:var(--sos-secondary);cursor:pointer;">
+                            <input type="checkbox" id="bpS3Enabled" style="width:auto;"> Destino 3: Bucket S3 / Cloudflare R2 / Backblaze B2
+                        </label>
+                        <button type="button" class="btn-chip" onclick="testBackupDestUI('s3', this)">🔌 Probar S3/R2</button>
+                    </div>
+                    <div class="fold-body-grid" style="margin-bottom:0;">
+                        <div class="field-group"><label>Endpoint URL (vacío para AWS S3):</label><input type="text" id="bpS3Endpoint" placeholder="https://<id>.r2.cloudflarestorage.com"></div>
+                        <div class="field-group"><label>Región:</label><input type="text" id="bpS3Region" value="auto"></div>
+                        <div class="field-group"><label>Nombre del Bucket:</label><input type="text" id="bpS3Bucket" placeholder="mis-backups-odoo"></div>
+                        <div class="field-group"><label>Prefijo / Carpeta:</label><input type="text" id="bpS3Prefix" value="sos_cloud_panel"></div>
+                        <div class="field-group"><label>Access Key ID:</label><input type="text" id="bpS3Ak"></div>
+                        <div class="field-group"><label>Secret Access Key:</label><input type="password" id="bpS3Sk"></div>
+                        <div class="field-group"><label>Retención S3 (días):</label><input type="number" id="bpS3Ret" min="0" max="3650" value="14"></div>
+                    </div>
+                </div>
+
+                <div class="field-group">
+                    <label>Clave maestra del panel (requerida para guardar cambios o generar llaves age):</label>
+                    <input type="password" id="bpMasterPass" placeholder="••••••••••••" autocomplete="off">
+                </div>
+                <div id="bpFeedback" style="display:none;padding:0.6rem 0.8rem;border-radius:8px;font-size:0.8rem;"></div>
+
+                <div style="display:flex;justify-content:flex-end;gap:0.6rem;">
+                    <button class="btn-secondary" onclick="closeBackupPolicyModal()">Cerrar</button>
+                    <button class="btn-sso" onclick="saveBackupPolicyUI(this)">💾 Guardar Política</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <div class="modal-backdrop" id="notifyModal">
         <div class="modal-box" style="background:#fff;color:#2e1f14;max-width:600px;">
@@ -664,6 +870,7 @@
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabName));
             document.querySelectorAll('.tab-panel').forEach(panel => panel.id === 'tab-' + tabName ? panel.classList.add('active') : panel.classList.remove('active'));
             if (tabName === 'monitoreo') fetchMonitoring();
+            if (tabName === 'respaldos') fetchBackupsOverview();
             if (tabName === 'salud') fetchHealthOverview();
             if (tabName === 'auditoria') refreshSecurityTab();
         }
@@ -1410,6 +1617,301 @@
                 fb.style.background = (res.ok && d.ok) ? '#ecfdf5' : '#fde8e8';
                 fb.style.color = (res.ok && d.ok) ? '#065f46' : '#9b1c1c';
                 fb.innerText = d.message || d.detail || 'Error en prueba de envío.';
+            } finally {
+                btn.disabled = false; btn.innerText = orig;
+            }
+        }
+
+        let cachedBackupPolicy = null;
+        let bkpPollTimer = null;
+
+        async function fetchBackupsOverview() {
+            try {
+                const res = await fetch('/api/backups/overview');
+                if (!res.ok) return;
+                const d = await res.json();
+                cachedBackupPolicy = d.policy || {};
+                const s = d.summary || {};
+
+                // Poblar selector de BDs manteniendo selección actual
+                const sel = document.getElementById('bkpTargetDbSelect');
+                const prevVal = sel.value;
+                const dbOpts = ['<option value="">Todas las bases reales (' + (d.available_databases || []).length + ')</option>'];
+                (d.available_databases || []).forEach(db => {
+                    const val = `${db.name}|${db.pg_container || ''}`;
+                    dbOpts.push(`<option value="${escHtml(val)}">${escHtml(db.name)}${db.pg_container ? ' (' + escHtml(db.pg_container) + ')' : ''}</option>`);
+                });
+                sel.innerHTML = dbOpts.join('');
+                if ([...sel.options].some(o => o.value === prevVal)) sel.value = prevVal;
+
+                // KPIs
+                document.getElementById('bkpVerifiedVal').innerText = `${s.verified_30d ?? 0} / ${s.total_30d ?? 0}`;
+                document.getElementById('bkpLastOkSub').innerText = s.last_ok_ts ? `Último: ${s.last_ok_db} (${fmtTs(s.last_ok_ts)})` : 'Aún sin respaldos automáticos ejecutados.';
+                const stBadge = document.getElementById('bkpStatusBadge');
+                if (d.is_locked || s.running_now > 0) {
+                    stBadge.className = 'pill';
+                    stBadge.style.background = 'rgba(245,158,11,0.2)';
+                    stBadge.style.color = '#92400e';
+                    stBadge.innerText = '⏳ En ejecución';
+                } else {
+                    stBadge.style = '';
+                    stBadge.className = 'pill pill-running';
+                    stBadge.innerText = 'Listo';
+                }
+
+                const p = cachedBackupPolicy;
+                const hh = String(p.schedule_hour ?? 2).padStart(2, '0');
+                const mm = String(p.schedule_minute ?? 0).padStart(2, '0');
+                document.getElementById('bkpSchedPill').innerText = p.schedule_enabled ? 'AUTOMÁTICO' : 'MANUAL';
+                document.getElementById('bkpSchedPill').className = p.schedule_enabled ? 'pill pill-running' : 'pill';
+                document.getElementById('bkpSchedVal').innerText = p.schedule_enabled ? `Diario ${hh}:${mm} UTC` : `Formato ${(p.backup_format || 'zip').toUpperCase()}`;
+                document.getElementById('bkpEncSub').innerText = `Restore-Test: ${p.verify_restore ? 'Activo' : 'Off'} • Cifrado age: ${p.encryption_enabled ? 'Activo 🔒' : 'Off'}`;
+
+                const remotes = d.rclone_remotes || [];
+                document.getElementById('bkpRemotesDetectedPill').innerText = remotes.length ? `rclone: ${remotes.join(', ')}` : 'Sin remotos rclone';
+                const pills = [];
+                if (p.local_enabled) pills.push(`<span class="pill pill-running">💿 Local (ret: ${p.local_retention_count})</span>`);
+                if (p.rclone_enabled) pills.push(`<span class="pill pill-running">☁️ rclone (${escHtml(p.rclone_remote || '--')})</span>`);
+                if (p.s3_enabled) pills.push(`<span class="pill pill-running">🪣 S3/R2 (${escHtml(p.s3_bucket || '--')})</span>`);
+                document.getElementById('bkpDestPills').innerHTML = pills.length ? pills.join('') : '<span class="pill pill-stopped">Ningún destino activo</span>';
+
+                const lfiles = d.local_files || [];
+                document.getElementById('bkpLocalCountPill').innerText = `${lfiles.length} archivo${lfiles.length === 1 ? '' : 's'}`;
+                document.getElementById('bkpLocalSizeVal').innerText = `${d.local_total_mb ?? 0} MB`;
+
+                // Tabla de historial
+                const runs = d.runs || [];
+                const rTbody = document.getElementById('bkpRunsTbody');
+                if (!runs.length) {
+                    rTbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:1.3rem;color:var(--sos-muted);">No hay ejecuciones registradas todavía. Use "Ejecutar Respaldo Verificado" arriba.</td></tr>';
+                } else {
+                    rTbody.innerHTML = runs.map(r => {
+                        const mb = r.size_bytes ? `${(r.size_bytes / (1024*1024)).toFixed(2)} MB` : '--';
+                        const shaShort = r.sha256 ? `SHA256:${r.sha256.slice(0, 10)}…` : '';
+                        const encBadge = r.encrypted ? ' <span class="pill pill-version">🔒 age</span>' : '';
+                        const restHtml = r.status === 'running'
+                            ? '<span style="color:var(--sos-muted);">⏳ Ejecutando pg_dump y Restore-Test...</span>'
+                            : (r.restore_tested
+                                ? (r.restore_ok ? `<span style="color:#065f46;font-weight:600;">✅ ${escHtml(r.restore_detail)}</span>` : `<span style="color:#991b1b;font-weight:600;">❌ ${escHtml(r.restore_detail)}</span>`)
+                                : '<span style="color:var(--sos-muted);">No requerido</span>');
+
+                        const dests = r.destinations || {};
+                        const dBadges = Object.entries(dests).map(([k, v]) => {
+                            if (v && v.skipped) return `<span class="pill">${escHtml(k)}: 0</span>`;
+                            return v && v.ok
+                                ? `<span class="pill pill-running">${escHtml(k)} ✓</span>`
+                                : `<span class="pill pill-stopped" title="${escHtml((v && v.error) || '')}">${escHtml(k)} ✕</span>`;
+                        }).join(' ');
+
+                        let stHtml = '<span class="pill">EN CURSO</span>';
+                        if (r.status === 'ok') stHtml = '<span class="pill pill-running">OK</span>';
+                        else if (r.status === 'partial') stHtml = '<span class="pill" style="background:rgba(245,158,11,0.2);color:#92400e;">PARCIAL</span>';
+                        else if (r.status === 'failed') stHtml = `<span class="pill pill-stopped" title="${escHtml(r.error)}">FALLIDO</span>`;
+
+                        return `
+                            <tr>
+                                <td style="font-size:0.75rem;white-space:nowrap;">${fmtTs(r.started_at)}</td>
+                                <td><strong>${escHtml(r.db_name)}</strong></td>
+                                <td><span class="pill">${escHtml(r.trigger_type)}</span></td>
+                                <td style="font-size:0.76rem;">
+                                    <div><strong>${escHtml(r.filename || '--')}</strong>${encBadge}</div>
+                                    <div style="color:var(--sos-muted);font-size:0.71rem;">${mb} ${shaShort ? '• ' + escHtml(shaShort) : ''}</div>
+                                </td>
+                                <td style="font-size:0.76rem;">${restHtml}${r.error ? '<div style="color:#991b1b;font-size:0.73rem;">' + escHtml(r.error) + '</div>' : ''}</td>
+                                <td>${dBadges || '--'}</td>
+                                <td>${stHtml}</td>
+                            </tr>`;
+                    }).join('');
+                }
+
+                // Tabla archivos locales
+                const lfTbody = document.getElementById('bkpLocalFilesTbody');
+                if (!lfiles.length) {
+                    lfTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:1.1rem;color:var(--sos-muted);">No hay copias locales almacenadas actualmente en ./backups.</td></tr>';
+                } else {
+                    lfTbody.innerHTML = lfiles.map(f => `
+                        <tr>
+                            <td><strong>${escHtml(f.db_name)}</strong></td>
+                            <td><code>${escHtml(f.filename)}</code> ${f.encrypted ? '<span class="pill pill-version">🔒 age</span>' : ''}</td>
+                            <td><strong>${f.size_mb} MB</strong></td>
+                            <td style="font-size:0.75rem;">${fmtTs(f.mtime)}</td>
+                            <td style="display:flex;gap:0.4rem;">
+                                <a class="btn-secondary" style="min-height:28px;padding:0.2rem 0.65rem;font-size:0.74rem;" href="/api/backups/local/${encodeURIComponent(f.db_name)}/${encodeURIComponent(f.filename)}">📥 Descargar</a>
+                                <button class="btn-secondary" style="min-height:28px;padding:0.2rem 0.65rem;font-size:0.74rem;color:#b91c1c;" onclick="deleteLocalBackupUI('${escHtml(f.db_name)}', '${escHtml(f.filename)}')">🗑️</button>
+                            </td>
+                        </tr>`).join('');
+                }
+
+                // Si hay respaldos corriendo, refrescar automáticamente cada 4s
+                clearTimeout(bkpPollTimer);
+                if ((d.is_locked || s.running_now > 0) && currentTab === 'respaldos') {
+                    bkpPollTimer = setTimeout(fetchBackupsOverview, 4000);
+                }
+            } catch (e) {}
+        }
+
+        async function triggerManagedBackupNow(btn) {
+            const selVal = document.getElementById('bkpTargetDbSelect').value;
+            let body = {};
+            let label = 'TODAS las bases de datos reales';
+            if (selVal) {
+                const [db_name, pg_container] = selVal.split('|');
+                body = {db_name, pg_container};
+                label = `la base de datos "${db_name}"`;
+            }
+            if (!confirm(`¿Iniciar respaldo gestionado (con Restore-Test y envío a destinos activos) para ${label}?`)) return;
+            btn.disabled = true;
+            try {
+                const res = await fetch('/api/backups/run', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body)
+                });
+                const d = await res.json();
+                if (!res.ok || !d.ok) {
+                    alert(d.message || 'No se pudo iniciar el respaldo.');
+                    return;
+                }
+                await fetchBackupsOverview();
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function deleteLocalBackupUI(dbName, filename) {
+            const pw = prompt(`Para eliminar la copia local "${filename}", ingrese la clave maestra del panel:`);
+            if (!pw) return;
+            const res = await fetch(`/api/backups/local/${encodeURIComponent(dbName)}/${encodeURIComponent(filename)}`, {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({admin_password: pw})
+            });
+            const d = await res.json();
+            if (!res.ok || !d.ok) alert(d.message || d.detail || 'No se pudo eliminar.');
+            fetchBackupsOverview();
+        }
+
+        function closeBackupPolicyModal() {
+            document.getElementById('backupPolicyModal').classList.remove('active');
+        }
+
+        async function openBackupPolicyModal() {
+            document.getElementById('bpFeedback').style.display = 'none';
+            document.getElementById('ageKeyBox').style.display = 'none';
+            document.getElementById('bpMasterPass').value = '';
+            if (!cachedBackupPolicy) await fetchBackupsOverview();
+            const p = cachedBackupPolicy || {};
+            document.getElementById('bpSchedEnabled').checked = !!p.schedule_enabled;
+            document.getElementById('bpHour').value = p.schedule_hour ?? 2;
+            document.getElementById('bpMinute').value = p.schedule_minute ?? 0;
+            document.getElementById('bpFormat').value = p.backup_format || 'zip';
+            document.getElementById('bpVerifyRestore').checked = p.verify_restore !== false;
+            document.getElementById('bpEncEnabled').checked = !!p.encryption_enabled;
+            document.getElementById('bpAgePubKey').value = p.age_public_key || '';
+            document.getElementById('bpLocalEnabled').checked = p.local_enabled !== false;
+            document.getElementById('bpLocalRet').value = p.local_retention_count ?? 2;
+            document.getElementById('bpRcloneEnabled').checked = !!p.rclone_enabled;
+            document.getElementById('bpRcloneRemote').value = p.rclone_remote || '';
+            document.getElementById('bpRclonePath').value = p.rclone_base_path || 'Backup/sos_cloud_panel';
+            document.getElementById('bpRcloneRet').value = p.rclone_retention_days ?? 14;
+            document.getElementById('bpS3Enabled').checked = !!p.s3_enabled;
+            document.getElementById('bpS3Endpoint').value = p.s3_endpoint_url || '';
+            document.getElementById('bpS3Region').value = p.s3_region || 'auto';
+            document.getElementById('bpS3Bucket').value = p.s3_bucket || '';
+            document.getElementById('bpS3Prefix').value = p.s3_prefix || 'sos_cloud_panel';
+            document.getElementById('bpS3Ak').value = p.s3_access_key || '';
+            document.getElementById('bpS3Sk').value = p.s3_secret_key || '';
+            document.getElementById('bpS3Ret').value = p.s3_retention_days ?? 14;
+            document.getElementById('backupPolicyModal').classList.add('active');
+        }
+
+        async function generateAgeKeypairUI() {
+            const pw = document.getElementById('bpMasterPass').value;
+            if (!pw) {
+                alert('Ingrese primero la Clave Maestra del panel al final de esta ventana para generar llaves age.');
+                document.getElementById('bpMasterPass').focus();
+                return;
+            }
+            const res = await fetch('/api/backups/age-keygen', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({admin_password: pw})
+            });
+            const d = await res.json();
+            if (!res.ok || !d.ok) {
+                alert(d.message || d.detail || 'Error generando llaves age.');
+                return;
+            }
+            document.getElementById('bpAgePubKey').value = d.public_key;
+            document.getElementById('bpEncEnabled').checked = true;
+            const box = document.getElementById('ageKeyBox');
+            box.style.display = 'block';
+            box.innerHTML = `
+                <div style="color:#34d399;font-weight:700;margin-bottom:0.4rem;">⚠️ GUARDE ESTA LLAVE PRIVADA FUERA DEL SERVIDOR (NO SE ALMACENA EN EL PANEL):</div>
+                <div style="word-break:break-all;font-family:monospace;margin-bottom:0.5rem;">${escHtml(d.private_key)}</div>
+                <div style="color:#9ca3af;font-size:0.72rem;">Para descifrar un archivo: <code>age -d -i llave_privada.txt respaldo.zip.age &gt; respaldo.zip</code> — Recuerde pulsar "Guardar Política" abajo.</div>`;
+        }
+
+        async function saveBackupPolicyUI(btn) {
+            const fb = document.getElementById('bpFeedback');
+            fb.style.display = 'none';
+            btn.disabled = true;
+            const policy = {
+                schedule_enabled: document.getElementById('bpSchedEnabled').checked,
+                schedule_hour: parseInt(document.getElementById('bpHour').value || '2', 10),
+                schedule_minute: parseInt(document.getElementById('bpMinute').value || '0', 10),
+                backup_format: document.getElementById('bpFormat').value,
+                verify_restore: document.getElementById('bpVerifyRestore').checked,
+                encryption_enabled: document.getElementById('bpEncEnabled').checked,
+                age_public_key: document.getElementById('bpAgePubKey').value.trim(),
+                local_enabled: document.getElementById('bpLocalEnabled').checked,
+                local_retention_count: parseInt(document.getElementById('bpLocalRet').value || '2', 10),
+                rclone_enabled: document.getElementById('bpRcloneEnabled').checked,
+                rclone_remote: document.getElementById('bpRcloneRemote').value.trim(),
+                rclone_base_path: document.getElementById('bpRclonePath').value.trim(),
+                rclone_retention_days: parseInt(document.getElementById('bpRcloneRet').value || '14', 10),
+                s3_enabled: document.getElementById('bpS3Enabled').checked,
+                s3_endpoint_url: document.getElementById('bpS3Endpoint').value.trim(),
+                s3_region: document.getElementById('bpS3Region').value.trim(),
+                s3_bucket: document.getElementById('bpS3Bucket').value.trim(),
+                s3_prefix: document.getElementById('bpS3Prefix').value.trim(),
+                s3_access_key: document.getElementById('bpS3Ak').value.trim(),
+                s3_secret_key: document.getElementById('bpS3Sk').value,
+                s3_retention_days: parseInt(document.getElementById('bpS3Ret').value || '14', 10),
+            };
+            try {
+                const res = await fetch('/api/backups/config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({admin_password: document.getElementById('bpMasterPass').value, policy})
+                });
+                const d = await res.json();
+                fb.style.display = 'block';
+                fb.style.background = (res.ok && d.ok) ? '#ecfdf5' : '#fde8e8';
+                fb.style.color = (res.ok && d.ok) ? '#065f46' : '#9b1c1c';
+                fb.innerText = d.message || d.detail || 'Error al guardar.';
+                if (res.ok && d.ok) await fetchBackupsOverview();
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function testBackupDestUI(destType, btn) {
+            const fb = document.getElementById('bpFeedback');
+            fb.style.display = 'none';
+            const orig = btn.innerText;
+            btn.disabled = true; btn.innerText = '⏳ Probando...';
+            try {
+                const res = await fetch('/api/backups/test-destination', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({type: destType})
+                });
+                const d = await res.json();
+                fb.style.display = 'block';
+                fb.style.background = (res.ok && d.ok) ? '#ecfdf5' : '#fde8e8';
+                fb.style.color = (res.ok && d.ok) ? '#065f46' : '#9b1c1c';
+                fb.innerText = `${d.message || d.detail} (Nota: guarde primero la política si modificó campos).`;
             } finally {
                 btn.disabled = false; btn.innerText = orig;
             }

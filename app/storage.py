@@ -140,6 +140,28 @@ def init_db() -> None:
                 );
                 CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status, opened_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_incidents_key ON incidents(incident_key, status);
+
+                CREATE TABLE IF NOT EXISTS backup_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    started_at INTEGER NOT NULL,
+                    finished_at INTEGER NOT NULL DEFAULT 0,
+                    trigger_type TEXT NOT NULL DEFAULT 'manual',
+                    db_name TEXT NOT NULL,
+                    pg_container TEXT NOT NULL DEFAULT '',
+                    fmt TEXT NOT NULL DEFAULT 'zip',
+                    filename TEXT NOT NULL DEFAULT '',
+                    size_bytes INTEGER NOT NULL DEFAULT 0,
+                    sha256 TEXT NOT NULL DEFAULT '',
+                    encrypted INTEGER NOT NULL DEFAULT 0,
+                    restore_tested INTEGER NOT NULL DEFAULT 0,
+                    restore_ok INTEGER NOT NULL DEFAULT 0,
+                    restore_detail TEXT NOT NULL DEFAULT '',
+                    destinations_json TEXT NOT NULL DEFAULT '{}',
+                    status TEXT NOT NULL DEFAULT 'running',
+                    error TEXT NOT NULL DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_backup_runs_ts ON backup_runs(started_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_backup_runs_db ON backup_runs(db_name, started_at DESC);
                 """
             )
             conn.commit()
@@ -573,6 +595,102 @@ def list_incidents(limit: int = 60, status_filter: str = "") -> List[Dict[str, A
         return [dict(r) for r in rows]
 
 
+# --- Fase 3: Backup Runs ---
+
+def create_backup_run(db_name: str, pg_container: str, fmt: str, trigger_type: str = "manual") -> int:
+    now = int(time.time())
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO backup_runs (started_at, trigger_type, db_name, pg_container, fmt, status)
+            VALUES (?, ?, ?, ?, ?, 'running')
+            """,
+            (now, trigger_type[:30], db_name[:120], pg_container[:120], fmt[:10]),
+        )
+        return int(cur.lastrowid)
+
+
+def finish_backup_run(
+    run_id: int,
+    status: str,
+    filename: str = "",
+    size_bytes: int = 0,
+    sha256: str = "",
+    encrypted: bool = False,
+    restore_tested: bool = False,
+    restore_ok: bool = False,
+    restore_detail: str = "",
+    destinations_json: str = "{}",
+    error: str = "",
+) -> None:
+    now = int(time.time())
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE backup_runs
+            SET finished_at = ?,
+                status = ?,
+                filename = ?,
+                size_bytes = ?,
+                sha256 = ?,
+                encrypted = ?,
+                restore_tested = ?,
+                restore_ok = ?,
+                restore_detail = ?,
+                destinations_json = ?,
+                error = ?
+            WHERE id = ?
+            """,
+            (
+                now,
+                status[:20],
+                filename[:220],
+                int(size_bytes),
+                sha256[:80],
+                1 if encrypted else 0,
+                1 if restore_tested else 0,
+                1 if restore_ok else 0,
+                restore_detail[:300],
+                destinations_json,
+                error[:500],
+                int(run_id),
+            ),
+        )
+
+
+def list_backup_runs(limit: int = 80, db_filter: str = "") -> List[Dict[str, Any]]:
+    safe_limit = max(1, min(int(limit), 300))
+    with get_conn() as conn:
+        if db_filter:
+            rows = conn.execute(
+                "SELECT * FROM backup_runs WHERE db_name = ? ORDER BY id DESC LIMIT ?",
+                (db_filter, safe_limit),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM backup_runs ORDER BY id DESC LIMIT ?", (safe_limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_backup_summary_30d() -> Dict[str, Any]:
+    cutoff = int(time.time()) - (30 * 86400)
+    with get_conn() as conn:
+        total = conn.execute("SELECT COUNT(*) AS c FROM backup_runs WHERE started_at >= ?", (cutoff,)).fetchone()["c"]
+        ok_cnt = conn.execute("SELECT COUNT(*) AS c FROM backup_runs WHERE started_at >= ? AND status = 'ok'", (cutoff,)).fetchone()["c"]
+        verified = conn.execute("SELECT COUNT(*) AS c FROM backup_runs WHERE started_at >= ? AND restore_ok = 1", (cutoff,)).fetchone()["c"]
+        failed = conn.execute("SELECT COUNT(*) AS c FROM backup_runs WHERE started_at >= ? AND status = 'failed'", (cutoff,)).fetchone()["c"]
+        running = conn.execute("SELECT COUNT(*) AS c FROM backup_runs WHERE status = 'running'").fetchone()["c"]
+        last_ok = conn.execute("SELECT finished_at, db_name FROM backup_runs WHERE status = 'ok' ORDER BY finished_at DESC LIMIT 1").fetchone()
+        return {
+            "total_30d": total,
+            "ok_30d": ok_cnt,
+            "verified_30d": verified,
+            "failed_30d": failed,
+            "running_now": running,
+            "last_ok_ts": last_ok["finished_at"] if last_ok else 0,
+            "last_ok_db": last_ok["db_name"] if last_ok else "",
+        }
+
+
 # --- Housekeeping ---
 
 def purge_expired_data(session_max_age: int = 86400 * 7, audit_retention_days: int = 180) -> Dict[str, int]:
@@ -581,9 +699,11 @@ def purge_expired_data(session_max_age: int = 86400 * 7, audit_retention_days: i
     audit_cutoff = now - (max(7, audit_retention_days) * 86400)
     uptime_cutoff = now - (14 * 86400)
     incidents_cutoff = now - (90 * 86400)
+    backups_hist_cutoff = now - (180 * 86400)
     with get_conn() as conn:
         c1 = conn.execute("DELETE FROM sessions WHERE created_at < ? OR (revoked = 1 AND last_seen < ?)", (sess_cutoff, now - 86400)).rowcount
         c2 = conn.execute("DELETE FROM audit_logs WHERE ts < ?", (audit_cutoff,)).rowcount
         c3 = conn.execute("DELETE FROM uptime_checks WHERE ts < ?", (uptime_cutoff,)).rowcount
         c4 = conn.execute("DELETE FROM incidents WHERE status = 'resolved' AND resolved_at > 0 AND resolved_at < ?", (incidents_cutoff,)).rowcount
-    return {"purged_sessions": c1, "purged_audit_logs": c2, "purged_uptime": c3, "purged_incidents": c4}
+        c5 = conn.execute("DELETE FROM backup_runs WHERE status != 'running' AND started_at < ?", (backups_hist_cutoff,)).rowcount
+    return {"purged_sessions": c1, "purged_audit_logs": c2, "purged_uptime": c3, "purged_incidents": c4, "purged_backup_runs": c5}

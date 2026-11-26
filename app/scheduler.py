@@ -57,6 +57,39 @@ def _safe_scanner_job() -> None:
         _logger.warning("Error en job security_scanner: %s", exc)
 
 
+def _safe_scheduled_backups_job() -> None:
+    try:
+        import backup_manager
+        backup_manager.run_batch_backups(targets=None, trigger_type="scheduled")
+    except Exception as exc:
+        _logger.warning("Error en job scheduled_backups: %s", exc)
+
+
+def sync_backup_schedule_job() -> None:
+    if _scheduler is None or not _scheduler.running:
+        return
+    try:
+        import backup_manager
+        policy = backup_manager.get_backup_policy(mask_secrets=False)
+        job_id = "scheduled_backups_daily"
+        if policy.get("schedule_enabled"):
+            _scheduler.add_job(
+                _safe_scheduled_backups_job,
+                trigger="cron",
+                hour=int(policy.get("schedule_hour", 2)),
+                minute=int(policy.get("schedule_minute", 0)),
+                id=job_id,
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
+        else:
+            if _scheduler.get_job(job_id):
+                _scheduler.remove_job(job_id)
+    except Exception as exc:
+        _logger.warning("No se pudo sincronizar job de backups: %s", exc)
+
+
 def _initial_warmup() -> None:
     """Puebla el primer sondeo de Uptime, SSL y Escáner al arrancar sin bloquear Uvicorn."""
     time.sleep(2)
@@ -83,6 +116,7 @@ def start_scheduler() -> BackgroundScheduler:
     sched.add_job(_safe_scanner_job, trigger="interval", hours=12, id="security_scanner_12h", replace_existing=True, max_instances=1, coalesce=True)
     sched.start()
     _scheduler = sched
+    sync_backup_schedule_job()
 
     threading.Thread(target=_initial_warmup, name="sos-health-warmup", daemon=True).start()
     _logger.info("APScheduler iniciado con 5 tareas programadas.")
