@@ -1,0 +1,132 @@
+<div class="modal-backdrop" id="actionModal">
+    <div class="modal-box" style="background:#fff;color:#2e1f14;max-width:460px;">
+        <div class="modal-header" style="background:#51344D;color:#fff;">
+            <strong id="actionTitle">Confirmar acción</strong>
+        </div>
+        <div style="padding:1.3rem;display:flex;flex-direction:column;gap:0.8rem;">
+            <div id="actionDesc" style="font-size:0.88rem;line-height:1.45;"></div>
+            <div id="actionNameWrap" style="display:none;flex-direction:column;gap:0.3rem;">
+                <label style="font-size:0.78rem;font-weight:600;">Escriba el nombre exacto para confirmar:</label>
+                <input type="text" id="actionConfirmName" autocomplete="off"
+                       style="padding:0.6rem;border:1px solid #d8d0c9;border-radius:8px;font-size:0.9rem;">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:0.3rem;">
+                <label style="font-size:0.78rem;font-weight:600;">Clave maestra del panel (panel admin password):</label>
+                <input type="password" id="actionPassword" autocomplete="off"
+                       style="padding:0.6rem;border:1px solid #d8d0c9;border-radius:8px;font-size:0.9rem;">
+            </div>
+            <div id="actionError" style="color:#9b1c1c;background:#fde8e8;padding:0.55rem 0.75rem;border-radius:8px;font-size:0.82rem;display:none;"></div>
+            <div style="display:flex;gap:0.6rem;justify-content:flex-end;margin-top:0.2rem;">
+                <button type="button" class="btn-secondary" onclick="closeActionModal()">Cancelar</button>
+                <button type="button" class="btn-close" id="actionConfirmBtn" style="background:#b91c1c;" onclick="submitAction()">Confirmar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let pendingAction = null;
+
+    function openActionModal(cfg) {
+        pendingAction = cfg;
+        document.getElementById('actionTitle').innerText = cfg.title;
+        document.getElementById('actionDesc').innerText = cfg.desc;
+        document.getElementById('actionPassword').value = '';
+        document.getElementById('actionConfirmName').value = '';
+        document.getElementById('actionError').style.display = 'none';
+        document.getElementById('actionNameWrap').style.display = cfg.needName ? 'flex' : 'none';
+        const btn = document.getElementById('actionConfirmBtn');
+        btn.style.background = cfg.btnColor || '#b91c1c';
+        btn.innerText = cfg.btnLabel || 'Confirmar';
+        document.getElementById('actionModal').classList.add('active');
+        setTimeout(() => document.getElementById(cfg.needName ? 'actionConfirmName' : 'actionPassword').focus(), 50);
+    }
+
+    function closeActionModal() {
+        document.getElementById('actionModal').classList.remove('active');
+        pendingAction = null;
+    }
+
+    async function submitAction() {
+        if (!pendingAction) return;
+        const btn = document.getElementById('actionConfirmBtn');
+        const errBox = document.getElementById('actionError');
+        btn.disabled = true;
+        errBox.style.display = 'none';
+        try {
+            const res = await fetch(pendingAction.url, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    admin_password: document.getElementById('actionPassword').value,
+                    confirm_name: document.getElementById('actionConfirmName').value
+                })
+            });
+            const data = await res.json().catch(() => ({message: 'Respuesta inválida del servidor.'}));
+            if (res.ok && data.ok) {
+                closeActionModal();
+                alert(data.message);
+                location.reload();
+            } else {
+                errBox.innerText = data.message || data.detail || 'Error al ejecutar la acción.';
+                errBox.style.display = 'block';
+            }
+        } catch (e) {
+            errBox.innerText = 'Error de red.';
+            errBox.style.display = 'block';
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && document.getElementById('actionModal').classList.contains('active')) {
+            e.preventDefault();
+            submitAction();
+        } else if (e.key === 'Escape' && document.getElementById('actionModal').classList.contains('active')) {
+            closeActionModal();
+        }
+    });
+
+    function confirmDropDatabase(dbName) {
+        openActionModal({
+            title: 'Eliminar base de datos',
+            desc: `Se eliminará DEFINITIVAMENTE la base de datos "${dbName}". Esta acción no se puede deshacer.`,
+            needName: true,
+            btnColor: '#b91c1c',
+            btnLabel: 'Eliminar BD',
+            url: `/api/databases/${encodeURIComponent(dbName)}/drop`
+        });
+    }
+
+    function confirmContainerAction(containerName, action) {
+        if (action === 'stop') {
+            openActionModal({
+                title: 'Parar contenedor',
+                desc: `Se detendrá el contenedor "${containerName}".`,
+                needName: false,
+                btnColor: '#92400e',
+                btnLabel: 'Parar',
+                url: `/api/containers/${encodeURIComponent(containerName)}/stop`
+            });
+        } else if (action === 'start') {
+            openActionModal({
+                title: 'Encender contenedor',
+                desc: `Se iniciará el contenedor "${containerName}".`,
+                needName: false,
+                btnColor: '#047857',
+                btnLabel: 'Encender',
+                url: `/api/containers/${encodeURIComponent(containerName)}/start`
+            });
+        } else if (action === 'remove') {
+            openActionModal({
+                title: 'Parar y borrar contenedor',
+                desc: `Se detendrá y eliminará el contenedor "${containerName}". Los volúmenes con datos no se borran.`,
+                needName: true,
+                btnColor: '#b91c1c',
+                btnLabel: 'Borrar Contenedor',
+                url: `/api/containers/${encodeURIComponent(containerName)}/remove`
+            });
+        }
+    }
+</script>

@@ -1,0 +1,21 @@
+services:
+  sos_cloud_panel:
+    build: ./app
+    container_name: sos_cloud_panel
+    restart: always
+    pid: "host"
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:8095:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/nginx/sites-enabled:/host_nginx/sites-enabled:ro
+      - /:/hostfs:ro
+    networks:
+      - pg_net
+
+networks:
+  pg_net:
+    external: true
+    name: odoo-net

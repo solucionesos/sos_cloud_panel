@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOS Cloud Control Panel | Soluciones Open Source</title>
+    <link rel="icon" type="image/png" href="/static/isotipo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --sos-primary: #E17726;
+            --sos-primary-hover: #c96519;
+            --sos-secondary: #51344D;
+            --sos-secondary-dark: #3b2438;
+            --sos-bg: #f5f2f0;
+            --sos-dark: #2e1f14;
+            --sos-muted: #6f665f;
+            --card-bg: #ffffff;
+            --border-color: #e4ded9;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Poppins', 'Roboto', sans-serif; }
+        body { background-color: var(--sos-bg); color: var(--sos-dark); min-height: 100vh; }
+        header.topbar { background: linear-gradient(90deg, var(--sos-secondary-dark) 0%, var(--sos-secondary) 100%); color: #ffffff; padding: 0.85rem 2rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; box-shadow: 0 4px 16px rgba(46, 31, 20, 0.18); position: sticky; top: 0; z-index: 50; border-bottom: 3px solid var(--sos-primary); }
+        .brand { display: flex; align-items: center; gap: 0.9rem; }
+        .brand-logo-box { background: #ffffff; padding: 5px 9px; border-radius: 10px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,0.2); height: 42px; }
+        .brand-logo-box img { height: 28px; width: auto; display: block; }
+        .brand-title { font-size: 1.12rem; font-weight: 700; line-height: 1.2; }
+        .brand-sub { font-size: 0.74rem; color: rgba(255, 255, 255, 0.78); }
+        .top-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem; }
+        .stat-pill { background: rgba(255, 255, 255, 0.12); padding: 0.38rem 0.85rem; border-radius: 99px; font-size: 0.78rem; font-weight: 500; }
+        .btn-logout { background: var(--sos-primary); color: #fff; text-decoration: none; padding: 0.42rem 0.95rem; border-radius: 8px; font-size: 0.8rem; font-weight: 600; }
+        .btn-logout:hover { background: var(--sos-primary-hover); }
+        .tabs-wrapper { background: #ffffff; border-bottom: 1px solid var(--border-color); box-shadow: 0 2px 8px rgba(46, 31, 20, 0.04); }
+        .tabs-nav { max-width: 1380px; margin: 0 auto; padding: 0 2rem; display: flex; gap: 0.4rem; overflow-x: auto; }
+        .tab-btn { background: transparent; border: none; border-bottom: 3px solid transparent; padding: 0.95rem 1.35rem; font-size: 0.92rem; font-weight: 600; color: var(--sos-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 0.55rem; white-space: nowrap; }
+        .tab-btn:hover { color: var(--sos-secondary); background: rgba(81, 52, 77, 0.04); }
+        .tab-btn.active { color: var(--sos-primary); border-bottom-color: var(--sos-primary); background: rgba(225, 119, 38, 0.05); }
+        .tab-count { background: rgba(81, 52, 77, 0.12); color: var(--sos-secondary); font-size: 0.72rem; padding: 0.15rem 0.55rem; border-radius: 99px; font-weight: 700; }
+        .tab-btn.active .tab-count { background: rgba(225, 119, 38, 0.16); color: var(--sos-primary); }
+        main.container { max-width: 1380px; margin: 0 auto; padding: 1.65rem 2rem 3rem; }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+        .toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.85rem; margin-bottom: 1.25rem; }
+        .toolbar-left, .toolbar-right { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; }
+        .section-title { font-size: 1.18rem; font-weight: 700; color: var(--sos-secondary); }
+        .search-input { width: 320px; max-width: 100%; padding: 0.58rem 0.95rem; border-radius: 9px; border: 1.5px solid var(--border-color); font-size: 0.85rem; background: #fff; }
+        .search-input:focus { outline: none; border-color: var(--sos-primary); box-shadow: 0 0 0 3px rgba(225, 119, 38, 0.14); }
+        .btn-sso { background: var(--sos-primary); color: #fff; border: none; padding: 0.55rem 0.95rem; border-radius: 8px; font-size: 0.82rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; text-decoration: none; min-height: 40px; }
+        .btn-sso:hover { background: var(--sos-primary-hover); }
+        .btn-secondary { background: #f0ebe6; color: var(--sos-dark); border: 1px solid #d8cfc8; padding: 0.5rem 0.85rem; border-radius: 8px; font-size: 0.8rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; text-decoration: none; min-height: 40px; white-space: nowrap; }
+        .btn-secondary:hover { background: #e4dcd5; }
+        .btn-secondary:disabled { opacity: 0.6; cursor: wait; }
+        .btn-chip { background: #fff; color: var(--sos-secondary); border: 1px solid var(--border-color); padding: 0.42rem 0.8rem; border-radius: 8px; font-size: 0.78rem; font-weight: 600; cursor: pointer; }
+        .btn-chip.active { background: var(--sos-secondary); color: #fff; border-color: var(--sos-secondary); }
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.1rem; margin-bottom: 1.4rem; }
+        .kpi-card { background: var(--card-bg); border-radius: 14px; border: 1px solid var(--border-color); padding: 1.15rem 1.25rem; box-shadow: 0 3px 10px rgba(46, 31, 20, 0.04); display: flex; flex-direction: column; gap: 0.6rem; }
+        .kpi-head { display: flex; align-items: center; justify-content: space-between; }
+        .kpi-label { font-size: 0.82rem; font-weight: 700; color: var(--sos-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
+        .kpi-value { font-size: 1.65rem; font-weight: 700; color: var(--sos-dark); line-height: 1.1; }
+        .kpi-sub { font-size: 0.77rem; color: var(--sos-muted); }
+        .progress-track { width: 100%; height: 9px; background: #ede8e4; border-radius: 99px; overflow: hidden; }
+        .progress-fill { height: 100%; border-radius: 99px; background: var(--sos-primary); transition: width 0.35s ease, background 0.25s; }
+        .cores-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 4px; margin-top: 0.25rem; }
+        .core-box { background: #f5f2f0; border-radius: 6px; padding: 3px 4px; text-align: center; font-size: 0.67rem; font-weight: 600; }
+        .storage-row { margin-top: 0.35rem; display: flex; flex-direction: column; gap: 0.22rem; }
+        .storage-row-head { display: flex; justify-content: space-between; font-size: 0.76rem; font-weight: 600; }
+        .proc-panel { background: #ffffff; border-radius: 14px; border: 1px solid var(--border-color); box-shadow: 0 3px 12px rgba(46, 31, 20, 0.05); overflow: hidden; }
+        .proc-toolbar { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-color); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; background: #faf8f6; }
+        .table-scroll { overflow-x: auto; max-height: 540px; overflow-y: auto; }
+        table.proc-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+        table.proc-table thead th { position: sticky; top: 0; background: var(--sos-secondary); color: #ffffff; text-align: left; padding: 0.72rem 0.85rem; font-weight: 600; font-size: 0.76rem; white-space: nowrap; z-index: 2; }
+        table.proc-table thead th.sortable { cursor: pointer; user-select: none; }
+        table.proc-table thead th.sortable:hover { background: var(--sos-secondary-dark); }
+        table.proc-table thead th.sort-active { background: var(--sos-primary); }
+        table.proc-table tbody td { padding: 0.58rem 0.85rem; border-bottom: 1px solid #f1ece8; vertical-align: middle; }
+        table.proc-table tbody tr:hover { background: #fdf9f5; }
+        .cmd-cell { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'Roboto', monospace; font-size: 0.75rem; color: #5a524c; }
+        .fold-list { display: flex; flex-direction: column; gap: 0.65rem; }
+        .fold-item { background: #ffffff; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; box-shadow: 0 2px 6px rgba(46, 31, 20, 0.04); }
+        .fold-item.open { border-color: var(--sos-primary); box-shadow: 0 6px 18px rgba(46, 31, 20, 0.09); }
+        .fold-header { padding: 0.82rem 1.15rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; cursor: pointer; user-select: none; background: #ffffff; }
+        .fold-header:hover { background: #fbf8f5; }
+        .fold-left { display: flex; align-items: center; gap: 0.75rem; min-width: 0; flex: 1; }
+        .chevron { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; background: #f3efec; color: var(--sos-secondary); font-size: 0.8rem; font-weight: 700; transition: transform 0.2s; flex-shrink: 0; }
+        .fold-item.open .chevron { transform: rotate(90deg); background: var(--sos-primary); color: #fff; }
+        .item-title { font-size: 0.98rem; font-weight: 700; color: var(--sos-dark); word-break: break-word; }
+        .item-sub { font-size: 0.78rem; color: var(--sos-muted); }
+        .fold-right { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+        .pill { background: #f5f2f0; color: #4a423c; font-size: 0.74rem; font-weight: 600; padding: 0.24rem 0.65rem; border-radius: 99px; white-space: nowrap; }
+        .pill-version { background: rgba(81, 52, 77, 0.12); color: var(--sos-secondary); }
+        .pill-running { background: rgba(16, 185, 129, 0.14); color: #065f46; }
+        .pill-stopped { background: rgba(239, 68, 68, 0.14); color: #991b1b; }
+        .pill-img { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .fold-body { display: none; padding: 1.05rem 1.25rem 1.2rem; border-top: 1px solid #f0ebe7; background: #fcfaf8; }
+        .fold-item.open .fold-body { display: block; }
+        .fold-body-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.9rem; margin-bottom: 1rem; }
+        .field-group { display: flex; flex-direction: column; gap: 0.3rem; }
+        .field-group label { font-size: 0.74rem; font-weight: 600; color: var(--sos-muted); }
+        .field-group input, .field-group select { width: 100%; padding: 0.52rem 0.75rem; border-radius: 8px; border: 1px solid #d8d0c9; font-size: 0.83rem; background: #fff; }
+        .action-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+        .status-running { background: #10b981; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22); }
+        .status-stopped { background: #ef4444; }
+        .modal-backdrop { position: fixed; inset: 0; background: rgba(20, 14, 18, 0.72); display: none; align-items: center; justify-content: center; padding: 1.5rem; z-index: 100; }
+        .modal-backdrop.active { display: flex; }
+        .modal-box { background: #1e1e24; color: #f3f4f6; width: 100%; max-width: 980px; max-height: 85vh; border-radius: 14px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 25px 50px rgba(0,0,0,0.45); }
+        .modal-header { padding: 1rem 1.4rem; background: #2b2b36; display: flex; align-items: center; justify-content: space-between; }
+        .modal-body { padding: 1.2rem; overflow-y: auto; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; line-height: 1.45; color: #d1d5db; }
+        .btn-close { background: var(--sos-primary); color: #fff; border: none; padding: 0.45rem 0.95rem; border-radius: 8px; cursor: pointer; font-weight: 600; min-height: 40px; }
+        @media (max-width: 720px) { header.topbar, .tabs-nav, main.container { padding-left: 1rem; padding-right: 1rem; } .search-input { width: 100%; } }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">
+            <div class="brand-logo-box">
+                <img src="/static/isotipo.png" alt="SOS" onerror="this.parentElement.innerHTML='<strong style=&quot;color:#E17726&quot;>SOS</strong>'">
+            </div>
+            <div>
+                <div class="brand-title">Soluciones Open Source • Cloud Panel</div>
+                <div class="brand-sub">Monitoreo de Servidor, Bases de Datos Odoo & Contenedores Docker</div>
+            </div>
+        </div>
+        <div class="top-actions">
+            <span class="stat-pill">🗄️ {{ total_dbs }} Bases</span>
+            <span class="stat-pill">🐳 {{ running_containers }}/{{ total_containers }} Contenedores</span>
+            <a href="/logout" class="btn-logout">Cerrar Sesión</a>
+        </div>
+    </header>
+
+    <div class="tabs-wrapper">
+        <nav class="tabs-nav">
+            <button class="tab-btn active" data-tab="monitoreo" onclick="switchTab('monitoreo')">📊 Monitoreo</button>
+            <button class="tab-btn" data-tab="bases" onclick="switchTab('bases')">🗄️ Bases de Datos <span class="tab-count">{{ total_dbs }}</span></button>
+            <button class="tab-btn" data-tab="contenedores" onclick="switchTab('contenedores')">🐳 Contenedores <span class="tab-count">{{ running_containers }}/{{ total_containers }}</span></button>
+        </nav>
+    </div>
+
+    <main class="container">
+        <section id="tab-monitoreo" class="tab-panel active">
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <h2 class="section-title">Monitor del Servidor en Tiempo Real</h2>
+                    <span class="pill" id="monUpdatedAt">Cargando métricas...</span>
+                </div>
+                <div class="toolbar-right">
+                    <button class="btn-chip active" id="btnAutoRefresh" onclick="toggleAutoRefresh()">⏱ Auto (3s): ON</button>
+                    <button class="btn-secondary" style="min-height:34px;padding:0.35rem 0.75rem;" onclick="fetchMonitoring()">🔄 Actualizar</button>
+                </div>
+            </div>
+
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-head"><span class="kpi-label">⚡ CPU</span><span class="pill" id="cpuCoresBadge">-- núcleos</span></div>
+                    <div class="kpi-value" id="cpuPercentVal">-- %</div>
+                    <div class="progress-track"><div class="progress-fill" id="cpuBar" style="width:0%"></div></div>
+                    <div class="kpi-sub" id="cpuLoadSub">Load Avg: -- / -- / --</div>
+                    <div class="cores-strip" id="coresStrip"></div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-head"><span class="kpi-label">🧠 Memoria RAM</span><span class="pill" id="ramPercentBadge">-- %</span></div>
+                    <div class="kpi-value" id="ramUsedVal">-- / -- GB</div>
+                    <div class="progress-track"><div class="progress-fill" id="ramBar" style="width:0%"></div></div>
+                    <div class="kpi-sub" id="ramAvailSub">Disponible: -- GB</div>
+                    <div class="storage-row">
+                        <div class="storage-row-head"><span>Swap</span><span id="swapText">-- / -- GB</span></div>
+                        <div class="progress-track" style="height:6px;"><div class="progress-fill" id="swapBar" style="width:0%;background:#51344D;"></div></div>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-head"><span class="kpi-label">💿 I/O Disco Duro</span><span class="pill" id="ioTotalRateBadge">-- MB/s</span></div>
+                    <div class="kpi-value" id="ioReadWriteVal">R: -- | W: --</div>
+                    <div class="kpi-sub" id="ioIopsSub">IOPS: Lectura --/s • Escritura --/s</div>
+                    <div class="kpi-sub" id="ioCumulSub">Acumulado: Leído -- GB • Escrito -- GB</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-head"><span class="kpi-label">💾 Almacenamiento</span><span class="pill" id="storageCountBadge">--</span></div>
+                    <div id="storageList" style="display:flex;flex-direction:column;gap:0.55rem;"><div class="kpi-sub">Cargando particiones...</div></div>
+                </div>
+            </div>
+
+            <div class="proc-panel">
+                <div class="proc-toolbar">
+                    <div class="toolbar-left">
+                        <strong style="color:var(--sos-secondary);font-size:0.95rem;">Procesos Activos</strong>
+                        <span class="pill" id="procTotalBadge">0 procesos</span>
+                        <input type="text" id="procFilter" class="search-input" style="width:260px;padding:0.42rem 0.8rem;" placeholder="Filtrar proceso, usuario o comando..." oninput="renderProcesses()">
+                    </div>
+                    <div class="toolbar-right">
+                        <span style="font-size:0.78rem;font-weight:600;color:var(--sos-muted);">Ordenar por:</span>
+                        <button class="btn-chip active" data-sort="cpu" onclick="setProcSort('cpu')">🔥 CPU %</button>
+                        <button class="btn-chip" data-sort="memory" onclick="setProcSort('memory')">🧠 RAM</button>
+                        <button class="btn-chip" data-sort="io" onclick="setProcSort('io')">💿 I/O Disco</button>
+                    </div>
+                </div>
+                <div class="table-scroll">
+                    <table class="proc-table">
+                        <thead>
+                            <tr>
+                                <th>PID</th><th>Proceso</th><th>Usuario</th><th>Estado</th>
+                                <th class="sortable sort-active" id="th-cpu" onclick="setProcSort('cpu')">CPU % ▼</th>
+                                <th class="sortable" id="th-memory" onclick="setProcSort('memory')">RAM (MB / %)</th>
+                                <th class="sortable" id="th-io" onclick="setProcSort('io')">I/O Disco (KB/s | Total)</th>
+                                <th>Comando</th>
+                            </tr>
+                        </thead>
+                        <tbody id="procTbody"><tr><td colspan="8" style="text-align:center;padding:1.5rem;color:var(--sos-muted);">Cargando procesos del servidor...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <section id="tab-bases" class="tab-panel">
+            <div class="toolbar">
+                <div class="toolbar-left"><h2 class="section-title">Bases de Datos de Clientes (Acceso 1-Clic)</h2></div>
+                <div class="toolbar-right">
+                    <input type="text" id="dbSearch" class="search-input" placeholder="Buscar por BD, empresa, dominio o versión..." oninput="filterDatabases()">
+                    <button class="btn-chip" onclick="toggleAllFold('#dbList', true)">Expandir todas</button>
+                    <button class="btn-chip" onclick="toggleAllFold('#dbList', false)">Colapsar todas</button>
+                </div>
+            </div>
+            <div class="fold-list" id="dbList">
+                {% for db in databases %}
+                <div class="fold-item" data-search="{{ db.name | lower }} {{ db.company_name | lower }} {{ db.version | lower }} {{ db.base_url | lower }}">
+                    <div class="fold-header" onclick="toggleFold(this.parentElement)">
+                        <div class="fold-left">
+                            <span class="chevron">▸</span>
+                            <div>
+                                <div class="item-title">{{ db.name }}</div>
+                                <div class="item-sub">{{ db.company_name }} • {{ db.base_url }}</div>
+                            </div>
+                        </div>
+                        <div class="fold-right">
+                            <span class="pill pill-version">{{ db.version }}</span>
+                            <span class="pill">💾 {{ db.size_pretty }}</span>
+                            <span class="pill">👥 {{ db.active_users_count }} usuarios</span>
+                        </div>
+                    </div>
+                    <div class="fold-body">
+                        <div class="fold-body-grid">
+                            <div class="field-group">
+                                <label>URL de la Instancia:</label>
+                                <input type="text" id="url_{{ loop.index }}" value="{{ db.base_url }}">
+                            </div>
+                            <div class="field-group">
+                                <label>Iniciar sesión como usuario interno:</label>
+                                <select id="uid_{{ loop.index }}">
+                                    {% for u in db.users %}
+                                    <option value="{{ u.id }}">[ID {{ u.id }}] {{ u.name }} ({{ u.login }})</option>
+                                    {% else %}
+                                    <option value="2">[ID 2] Administrador Principal</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="action-bar">
+                            <button class="btn-sso" onclick="openSsoLogin('{{ db.name }}', 'url_{{ loop.index }}', 'uid_{{ loop.index }}')">⚡ Entrar como Admin (1-Clic)</button>
+                            <a href="{{ db.base_url }}/web/login" target="_blank" class="btn-secondary">🔗 Abrir Web</a>
+                            {% if not db.name.startswith('Error') %}
+                            <button class="btn-secondary" onclick="downloadBackup('{{ db.name }}', 'zip', this)">📦 Backup ZIP (con Filestore)</button>
+                            <button class="btn-secondary" onclick="downloadBackup('{{ db.name }}', 'dump', this)">🗄️ Backup Sin Filestore</button>
+                            <button class="btn-secondary" style="color:#b91c1c;" onclick="confirmDropDatabase('{{ db.name }}')">🗑️ Eliminar BD</button>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section id="tab-contenedores" class="tab-panel">
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <h2 class="section-title">Contenedores Docker en el Servidor</h2>
+                    <button class="btn-chip" data-cfilter="all" onclick="setContainerFilter('all')">Todos</button>
+                    <button class="btn-chip active" data-cfilter="running" onclick="setContainerFilter('running')">Activos</button>
+                    <button class="btn-chip" data-cfilter="stopped" onclick="setContainerFilter('stopped')">Detenidos</button>
+                </div>
+                <div class="toolbar-right">
+                    <input type="text" id="containerSearch" class="search-input" placeholder="Buscar contenedor, imagen, puerto o dominio..." oninput="filterContainers()">
+                    <button class="btn-chip" onclick="fetchContainerStats()">🔄 Métricas</button>
+                    <button class="btn-chip" onclick="toggleAllFold('#containerList', true)">Expandir todos</button>
+                    <button class="btn-chip" onclick="toggleAllFold('#containerList', false)">Colapsar todos</button>
+                </div>
+            </div>
+            <div class="fold-list" id="containerList">
+                {% for c in containers %}
+                <div class="fold-item" data-running="{{ '1' if c.is_running else '0' }}" data-search="{{ c.name | lower }} {{ c.image | lower }} {{ c.status | lower }} {{ c.host_ports | join(' ') }} {{ c.domains | join(' ') | lower }}">
+                    <div class="fold-header" onclick="toggleFold(this.parentElement)">
+                        <div class="fold-left">
+                            <span class="chevron">▸</span>
+                            <span class="status-dot {% if c.is_running %}status-running{% else %}status-stopped{% endif %}"></span>
+                            <div style="min-width:0;">
+                                <div class="item-title">{{ c.name }}</div>
+                                <div class="item-sub">{% if c.domains %}{{ c.domains | join(', ') }}{% else %}ID: {{ c.id }}{% endif %}</div>
+                            </div>
+                        </div>
+                        <div class="fold-right">
+                            {% if c.is_running %}<span class="pill c-cpu-pill" data-cname="{{ c.name }}">⚡ --%</span><span class="pill c-ram-pill" data-cname="{{ c.name }}">🧠 -- MB</span><span class="pill c-io-pill" data-cname="{{ c.name }}">💿 -- / -- MB</span>{% endif %}
+                            <span class="pill {% if c.is_running %}pill-running{% else %}pill-stopped{% endif %}">{{ c.status }}</span>
+                            <span class="pill pill-version pill-img" title="{{ c.image }}">{{ c.image }}</span>
+                            <span class="pill">🔌 {{ c.host_ports | join(', ') if c.host_ports else 'Interno' }}</span>
+                        </div>
+                    </div>
+                    <div class="fold-body">
+                        <div class="fold-body-grid" style="font-size:0.82rem;color:#4e4640;">
+                            <div><strong>ID:</strong> {{ c.id }}</div>
+                            <div><strong>Imagen:</strong> <span style="word-break:break-all;">{{ c.image }}</span></div>
+                            <div><strong>Puertos Host:</strong> {{ c.host_ports | join(', ') if c.host_ports else 'Red interna' }}</div>
+                            <div><strong>Dominios Nginx:</strong> {{ c.domains | join(', ') if c.domains else 'Sin dominio directo' }}</div>
+                            {% if c.is_running %}<div><strong>CPU:</strong> <span class="c-cpu-detail" data-cname="{{ c.name }}">Calculando...</span></div><div><strong>RAM:</strong> <span class="c-ram-detail" data-cname="{{ c.name }}">Calculando...</span></div><div><strong>I/O Disco:</strong> <span class="c-io-detail" data-cname="{{ c.name }}">Calculando...</span></div>{% endif %}
+                        </div>
+                        {% if not c.name.startswith('Error') %}
+                        <div class="action-bar">
+                            <button class="btn-secondary" onclick="showLogs('{{ c.name }}')">📄 Logs</button>
+                            <button class="btn-secondary" style="color:#0369a1;" onclick="restartContainer('{{ c.name }}', this)">🔄 Reiniciar</button>
+                            {% if c.is_running %}
+                            <button class="btn-secondary" style="color:#92400e;" onclick="confirmContainerAction('{{ c.name }}', 'stop')">⏹ Parar</button>
+                            {% else %}
+                            <button class="btn-secondary" style="color:#047857;" onclick="confirmContainerAction('{{ c.name }}', 'start')">▶ Encender</button>
+                            {% endif %}
+                            <button class="btn-secondary" style="color:#b91c1c;" onclick="confirmContainerAction('{{ c.name }}', 'remove')">🗑️ Borrar</button>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+    </main>
+
+    <div class="modal-backdrop" id="logsModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <strong id="logsModalTitle">Logs del Contenedor</strong>
+                <div style="display:flex; gap:0.5rem;">
+                    <button class="btn-close" style="background:#4b5563;" onclick="refreshCurrentLogs()">Actualizar</button>
+                    <button class="btn-close" onclick="closeLogsModal()">Cerrar</button>
+                </div>
+            </div>
+            <div class="modal-body" id="logsModalContent">Cargando logs...</div>
+        </div>
+    </div>
+
+    <script>
+        let currentTab = localStorage.getItem('sos_active_tab') || 'monitoreo';
+        let currentLogContainer = null;
+        let containerStatusFilter = 'running';
+
+        function switchTab(tabName) {
+            currentTab = tabName;
+            localStorage.setItem('sos_active_tab', tabName);
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabName));
+            document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === 'tab-' + tabName));
+            if (tabName === 'monitoreo') fetchMonitoring();
+        }
+        function toggleFold(itemEl) { itemEl.classList.toggle('open'); }
+        function toggleAllFold(listSelector, expand) {
+            document.querySelectorAll(`${listSelector} .fold-item`).forEach(el => {
+                if (el.style.display !== 'none') el.classList.toggle('open', expand);
+            });
+        }
+        function filterDatabases() {
+            const q = document.getElementById('dbSearch').value.toLowerCase().trim();
+            document.querySelectorAll('#dbList .fold-item').forEach(item => {
+                item.style.display = (item.getAttribute('data-search') || '').includes(q) ? 'block' : 'none';
+            });
+        }
+        function setContainerFilter(mode) {
+            containerStatusFilter = mode;
+            document.querySelectorAll('[data-cfilter]').forEach(b => b.classList.toggle('active', b.dataset.cfilter === mode));
+            filterContainers();
+        }
+        function filterContainers() {
+            const q = document.getElementById('containerSearch').value.toLowerCase().trim();
+            document.querySelectorAll('#containerList .fold-item').forEach(item => {
+                const hay = item.getAttribute('data-search') || '';
+                const isRun = item.getAttribute('data-running') === '1';
+                const matchState = (containerStatusFilter === 'all' || (containerStatusFilter === 'running' && isRun) || (containerStatusFilter === 'stopped' && !isRun));
+                item.style.display = (hay.includes(q) && matchState) ? 'block' : 'none';
+            });
+        }
+        function openSsoLogin(dbName, urlInputId, uidSelectId) {
+            const baseUrl = document.getElementById(urlInputId).value.trim();
+            const uid = document.getElementById(uidSelectId).value;
+            window.open(`/go/sso?db=${encodeURIComponent(dbName)}&base_url=${encodeURIComponent(baseUrl)}&uid=${encodeURIComponent(uid)}`, '_blank');
+        }
+        
+        async function downloadBackup(dbName, fmt, btn) {
+            const origText = btn.innerText;
+            btn.disabled = true;
+            btn.innerText = '⏳ Generando backup...';
+            try {
+                const res = await fetch(`/api/databases/${encodeURIComponent(dbName)}/backup?fmt=${encodeURIComponent(fmt)}`);
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({ detail: `Error HTTP ${res.status}` }));
+                    alert(err.detail || err.message || 'Error al generar backup.');
+                    return;
+                }
+                const blob = await res.blob();
+                const cd = res.headers.get('content-disposition') || '';
+                const match = cd.match(/filename="?([^"]+)"?/i);
+                const filename = match ? match[1] : `${dbName}.${fmt === 'zip' ? 'zip' : 'dump'}`;
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = filename;
+                document.body.appendChild(a); a.click(); a.remove();
+                URL.revokeObjectURL(url);
+            } catch (e) {
+                alert('Error de red al descargar backup: ' + e.message);
+            } finally {
+                btn.disabled = false; btn.innerText = origText;
+            }
+        }
+
+        async function fetchContainerStats() {
+            try {
+                const res = await fetch('/api/containers/stats');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!data.ok || !data.stats) return;
+                const stats = data.stats;
+                document.querySelectorAll('.c-cpu-pill').forEach(el => { const s = stats[el.dataset.cname]; if (s) el.innerText = `⚡ ${s.cpu_percent}%`; });
+                document.querySelectorAll('.c-ram-pill').forEach(el => { const s = stats[el.dataset.cname]; if (s) el.innerText = `🧠 ${s.mem_used_mb} MB (${s.mem_percent}%)`; });
+                document.querySelectorAll('.c-io-pill').forEach(el => { const s = stats[el.dataset.cname]; if (s) el.innerText = `💿 R:${s.io_read_mb} / W:${s.io_write_mb} MB`; });
+                document.querySelectorAll('.c-cpu-detail').forEach(el => { const s = stats[el.dataset.cname]; if (s) el.innerText = `${s.cpu_percent}%`; });
+                document.querySelectorAll('.c-ram-detail').forEach(el => { const s = stats[el.dataset.cname]; if (s) el.innerText = `${s.mem_used_mb} MB / ${s.mem_limit_mb} MB (${s.mem_percent}%)`; });
+                document.querySelectorAll('.c-io-detail').forEach(el => { const s = stats[el.dataset.cname]; if (s) el.innerText = `Lectura ${s.io_read_mb} MB • Escritura ${s.io_write_mb} MB`; });
+            } catch (e) {}
+        }
+
+        async function showLogs(containerName) {
+            currentLogContainer = containerName;
+            document.getElementById('logsModalTitle').innerText = `Logs en vivo: ${containerName}`;
+            document.getElementById('logsModalContent').innerText = 'Obteniendo logs...';
+            document.getElementById('logsModal').classList.add('active');
+            await refreshCurrentLogs();
+        }
+        async function refreshCurrentLogs() {
+            if (!currentLogContainer) return;
+            const res = await fetch(`/api/containers/${encodeURIComponent(currentLogContainer)}/logs?tail=120`);
+            const data = await res.json();
+            const box = document.getElementById('logsModalContent');
+            box.innerText = data.ok ? (data.logs || '(Sin logs recientes)') : `Error: ${data.message}`;
+            box.scrollTop = box.scrollHeight;
+        }
+        function closeLogsModal() { document.getElementById('logsModal').classList.remove('active'); currentLogContainer = null; }
+        async function restartContainer(containerName, btn) {
+            if (!confirm(`¿Seguro que deseas reiniciar '${containerName}'?`)) return;
+            btn.disabled = true; btn.innerText = '⏳ Reiniciando...';
+            try {
+                const res = await fetch(`/api/containers/${encodeURIComponent(containerName)}/restart`, { method: 'POST' });
+                const data = await res.json();
+                alert(data.message || 'Contenedor reiniciado.');
+                location.reload();
+            } finally { btn.disabled = false; }
+        }
+
+        let procSort = 'cpu', procOrder = 'desc', lastMonData = null, autoRefreshOn = true;
+        function escHtml(str) { return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        function barColor(pct) { return pct >= 90 ? '#dc2626' : (pct >= 75 ? '#d97706' : '#E17726'); }
+        function toggleAutoRefresh() {
+            autoRefreshOn = !autoRefreshOn;
+            const btn = document.getElementById('btnAutoRefresh');
+            btn.classList.toggle('active', autoRefreshOn);
+            btn.innerText = autoRefreshOn ? '⏱ Auto (3s): ON' : '⏸ Auto (3s): OFF';
+        }
+        function setProcSort(field) {
+            if (procSort === field) procOrder = procOrder === 'desc' ? 'asc' : 'desc';
+            else { procSort = field; procOrder = 'desc'; }
+            document.querySelectorAll('[data-sort]').forEach(b => b.classList.toggle('active', b.dataset.sort === procSort));
+            const labels = { cpu: 'CPU %', memory: 'RAM (MB / %)', io: 'I/O Disco (KB/s | Total)' };
+            ['cpu', 'memory', 'io'].forEach(k => {
+                const th = document.getElementById('th-' + k);
+                th.classList.toggle('sort-active', k === procSort);
+                th.innerText = labels[k] + (k === procSort ? (procOrder === 'desc' ? ' ▼' : ' ▲') : '');
+            });
+            fetchMonitoring();
+        }
+        async function fetchMonitoring() {
+            try {
+                const res = await fetch(`/api/monitoring?sort=${procSort}&order=${procOrder}&limit=80`);
+                if (!res.ok) return;
+                lastMonData = await res.json();
+                renderMonitoring(lastMonData);
+            } catch (e) { document.getElementById('monUpdatedAt').innerText = 'Error consultando métricas'; }
+        }
+        function renderMonitoring(d) {
+            document.getElementById('monUpdatedAt').innerText = `Actualizado: ${new Date().toLocaleTimeString()}`;
+            document.getElementById('cpuPercentVal').innerText = `${d.cpu.percent}%`;
+            document.getElementById('cpuCoresBadge').innerText = `${d.cpu.cores} vCPUs`;
+            const cpuBar = document.getElementById('cpuBar');
+            cpuBar.style.width = `${Math.min(100, d.cpu.percent)}%`;
+            cpuBar.style.background = barColor(d.cpu.percent);
+            document.getElementById('cpuLoadSub').innerText = `Load Avg: ${d.cpu.load_1m} / ${d.cpu.load_5m} / ${d.cpu.load_15m}`;
+            document.getElementById('coresStrip').innerHTML = (d.cpu.per_core || []).map((v, i) => `<div class="core-box" style="border-bottom:2px solid ${barColor(v)};">C${i}:${v}%</div>`).join('');
+
+            document.getElementById('ramUsedVal').innerText = `${d.memory.used_gb} / ${d.memory.total_gb} GB`;
+            document.getElementById('ramPercentBadge').innerText = `${d.memory.percent}%`;
+            const ramBar = document.getElementById('ramBar');
+            ramBar.style.width = `${Math.min(100, d.memory.percent)}%`;
+            ramBar.style.background = barColor(d.memory.percent);
+            document.getElementById('ramAvailSub').innerText = `Disponible: ${d.memory.available_gb} GB`;
+            document.getElementById('swapText').innerText = `${d.memory.swap_used_gb} / ${d.memory.swap_total_gb} GB (${d.memory.swap_percent}%)`;
+            document.getElementById('swapBar').style.width = `${Math.min(100, d.memory.swap_percent)}%`;
+
+            document.getElementById('ioTotalRateBadge').innerText = `${d.disk_io.total_mb_s} MB/s`;
+            document.getElementById('ioReadWriteVal').innerText = `R: ${d.disk_io.read_mb_s} | W: ${d.disk_io.write_mb_s} MB/s`;
+            document.getElementById('ioIopsSub').innerText = `IOPS: Lectura ${d.disk_io.read_iops}/s • Escritura ${d.disk_io.write_iops}/s`;
+            document.getElementById('ioCumulSub').innerText = `Acumulado: Leído ${d.disk_io.total_read_gb} GB • Escrito ${d.disk_io.total_write_gb} GB`;
+
+            const mounts = d.storage || [];
+            document.getElementById('storageCountBadge').innerText = `${mounts.length} vol.`;
+            document.getElementById('storageList').innerHTML = mounts.map(m => `
+                <div class="storage-row">
+                    <div class="storage-row-head"><span>${escHtml(m.mountpoint)}</span><span>${m.used_gb} / ${m.total_gb} GB (${m.percent}%)</span></div>
+                    <div class="progress-track" style="height:7px;"><div class="progress-fill" style="width:${Math.min(100, m.percent)}%;background:${barColor(m.percent)};"></div></div>
+                    <div style="font-size:0.7rem;color:var(--sos-muted);">Libre: ${m.free_gb} GB</div>
+                </div>`).join('');
+            renderProcesses();
+        }
+        function renderProcesses() {
+            if (!lastMonData) return;
+            const q = (document.getElementById('procFilter').value || '').toLowerCase().trim();
+            const list = (lastMonData.processes || []).filter(p => !q || String(p.pid).includes(q) || (p.name||'').toLowerCase().includes(q) || (p.username||'').toLowerCase().includes(q) || (p.cmdline||'').toLowerCase().includes(q));
+            document.getElementById('procTotalBadge').innerText = `${list.length} / ${lastMonData.total_processes} procesos`;
+            const tbody = document.getElementById('procTbody');
+            if (!list.length) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:1.2rem;color:var(--sos-muted);">Sin coincidencias.</td></tr>'; return; }
+            tbody.innerHTML = list.map(p => `
+                <tr>
+                    <td><strong>${p.pid}</strong></td>
+                    <td><strong>${escHtml(p.name)}</strong></td>
+                    <td>${escHtml(p.username)}</td>
+                    <td><span class="pill">${escHtml(p.status)}</span></td>
+                    <td><strong style="color:${barColor(p.cpu_percent)};">${p.cpu_percent}%</strong></td>
+                    <td><strong>${p.memory_mb} MB</strong> <span style="color:var(--sos-muted);">(${p.memory_percent}%)</span></td>
+                    <td><strong>${p.io_total_kbps} KB/s</strong> <span style="color:var(--sos-muted);font-size:0.72rem;">(R:${p.io_read_kbps} W:${p.io_write_kbps} | ${p.io_total_mb} MB)</span></td>
+                    <td class="cmd-cell" title="${escHtml(p.cmdline)}">${escHtml(p.cmdline)}</td>
+                </tr>`).join('');
+        }
+        document.addEventListener('DOMContentLoaded', () => {
+            filterContainers();
+            switchTab(currentTab);
+            setInterval(() => { if (autoRefreshOn && currentTab === 'monitoreo') fetchMonitoring(); }, 3000);
+        });
+    </script>
+    {% include "_admin_actions.html" %}
+</body>
+</html>
