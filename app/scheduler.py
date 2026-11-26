@@ -1,11 +1,14 @@
-"""Planificador de tareas en segundo plano (APScheduler) para mantenimiento y futuras fases."""
+"""Planificador de tareas en segundo plano (APScheduler) para monitoreo, seguridad y mantenimiento."""
 import logging
 import os
+import threading
 import time
 from typing import Any, Dict, Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
+import health_monitor
+import security_scanner
 import storage
 
 _logger = logging.getLogger("sos_scheduler")
@@ -20,10 +23,48 @@ def _run_housekeeping() -> None:
     try:
         res = storage.purge_expired_data(audit_retention_days=AUDIT_RETENTION_DAYS)
         _last_housekeeping_ts = int(time.time())
-        if res["purged_sessions"] or res["purged_audit_logs"]:
+        if any(res.values()):
             _logger.info("Housekeeping completado: %s", res)
     except Exception as exc:
         _logger.warning("Error en tarea housekeeping: %s", exc)
+
+
+def _safe_uptime_job() -> None:
+    try:
+        health_monitor.run_uptime_checks()
+    except Exception as exc:
+        _logger.warning("Error en job uptime_monitor: %s", exc)
+
+
+def _safe_ssl_job() -> None:
+    try:
+        health_monitor.run_ssl_checks()
+    except Exception as exc:
+        _logger.warning("Error en job ssl_monitor: %s", exc)
+
+
+def _safe_thresholds_job() -> None:
+    try:
+        health_monitor.run_host_threshold_checks()
+    except Exception as exc:
+        _logger.warning("Error en job host_thresholds: %s", exc)
+
+
+def _safe_scanner_job() -> None:
+    try:
+        security_scanner.run_all_security_scans()
+    except Exception as exc:
+        _logger.warning("Error en job security_scanner: %s", exc)
+
+
+def _initial_warmup() -> None:
+    """Puebla el primer sondeo de Uptime, SSL y Escáner al arrancar sin bloquear Uvicorn."""
+    time.sleep(2)
+    _safe_uptime_job()
+    _safe_ssl_job()
+    _safe_thresholds_job()
+    if not storage.get_all_security_scans():
+        _safe_scanner_job()
 
 
 def start_scheduler() -> BackgroundScheduler:
@@ -35,18 +76,16 @@ def start_scheduler() -> BackgroundScheduler:
     _run_housekeeping()
 
     sched = BackgroundScheduler(timezone="UTC")
-    sched.add_job(
-        _run_housekeeping,
-        trigger="interval",
-        minutes=60,
-        id="panel_housekeeping",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
+    sched.add_job(_run_housekeeping, trigger="interval", minutes=60, id="panel_housekeeping", replace_existing=True, max_instances=1, coalesce=True)
+    sched.add_job(_safe_uptime_job, trigger="interval", minutes=1, id="uptime_monitor_1m", replace_existing=True, max_instances=1, coalesce=True)
+    sched.add_job(_safe_thresholds_job, trigger="interval", minutes=5, id="host_thresholds_5m", replace_existing=True, max_instances=1, coalesce=True)
+    sched.add_job(_safe_ssl_job, trigger="interval", hours=6, id="ssl_monitor_6h", replace_existing=True, max_instances=1, coalesce=True)
+    sched.add_job(_safe_scanner_job, trigger="interval", hours=12, id="security_scanner_12h", replace_existing=True, max_instances=1, coalesce=True)
     sched.start()
     _scheduler = sched
-    _logger.info("APScheduler iniciado correctamente.")
+
+    threading.Thread(target=_initial_warmup, name="sos-health-warmup", daemon=True).start()
+    _logger.info("APScheduler iniciado con 5 tareas programadas.")
     return sched
 
 

@@ -90,6 +90,56 @@ def init_db() -> None:
                     created_at INTEGER NOT NULL,
                     created_by TEXT NOT NULL DEFAULT 'admin'
                 );
+
+                CREATE TABLE IF NOT EXISTS uptime_checks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts INTEGER NOT NULL,
+                    domain TEXT NOT NULL,
+                    url TEXT NOT NULL,
+                    is_up INTEGER NOT NULL,
+                    status_code INTEGER NOT NULL DEFAULT 0,
+                    latency_ms INTEGER NOT NULL DEFAULT 0,
+                    error TEXT NOT NULL DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_uptime_domain_ts ON uptime_checks(domain, ts DESC);
+                CREATE INDEX IF NOT EXISTS idx_uptime_ts ON uptime_checks(ts DESC);
+
+                CREATE TABLE IF NOT EXISTS ssl_status (
+                    domain TEXT PRIMARY KEY,
+                    checked_at INTEGER NOT NULL,
+                    valid INTEGER NOT NULL DEFAULT 0,
+                    days_left INTEGER NOT NULL DEFAULT -1,
+                    not_after TEXT NOT NULL DEFAULT '',
+                    issuer TEXT NOT NULL DEFAULT '',
+                    tls_version TEXT NOT NULL DEFAULT '',
+                    error TEXT NOT NULL DEFAULT ''
+                );
+
+                CREATE TABLE IF NOT EXISTS security_scans (
+                    domain TEXT PRIMARY KEY,
+                    scanned_at INTEGER NOT NULL,
+                    score INTEGER NOT NULL DEFAULT 0,
+                    grade TEXT NOT NULL DEFAULT 'F',
+                    db_name TEXT NOT NULL DEFAULT '',
+                    findings_json TEXT NOT NULL DEFAULT '[]'
+                );
+
+                CREATE TABLE IF NOT EXISTS incidents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    incident_key TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    severity TEXT NOT NULL DEFAULT 'warning',
+                    target TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    detail TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'open',
+                    opened_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    resolved_at INTEGER NOT NULL DEFAULT 0,
+                    notified_at INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status, opened_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_incidents_key ON incidents(incident_key, status);
                 """
             )
             conn.commit()
@@ -269,13 +319,271 @@ def count_audit_summary_24h() -> Dict[str, int]:
         return {"events_24h": total, "failed_24h": failed, "sso_24h": sso}
 
 
+# --- Fase 2: Uptime, SSL, Security Scans & Incidents ---
+
+def insert_uptime_batch(rows: List[Dict[str, Any]]) -> None:
+    if not rows:
+        return
+    with get_conn() as conn:
+        conn.executemany(
+            """
+            INSERT INTO uptime_checks (ts, domain, url, is_up, status_code, latency_ms, error)
+            VALUES (:ts, :domain, :url, :is_up, :status_code, :latency_ms, :error)
+            """,
+            rows,
+        )
+
+
+def get_domain_recent_failures(domain: str, limit: int = 2) -> int:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT is_up FROM uptime_checks WHERE domain = ? ORDER BY ts DESC, id DESC LIMIT ?",
+            (domain, limit),
+        ).fetchall()
+        count = 0
+        for r in rows:
+            if r["is_up"] == 0:
+                count += 1
+            else:
+                break
+        return count
+
+
+def get_uptime_summary_by_domain() -> Dict[str, Dict[str, Any]]:
+    cutoff_24h = int(time.time()) - 86400
+    cutoff_7d = int(time.time()) - 86400 * 7
+    out: Dict[str, Dict[str, Any]] = {}
+    with get_conn() as conn:
+        # Estadísticas agregadas 24h y 7d
+        agg_24 = {
+            r["domain"]: dict(r)
+            for r in conn.execute(
+                """
+                SELECT domain,
+                       COUNT(*) AS total_24h,
+                       SUM(is_up) AS up_24h,
+                       ROUND(AVG(CASE WHEN is_up = 1 THEN latency_ms END), 0) AS avg_latency_24h
+                FROM uptime_checks
+                WHERE ts >= ?
+                GROUP BY domain
+                """,
+                (cutoff_24h,),
+            ).fetchall()
+        }
+        agg_7d = {
+            r["domain"]: dict(r)
+            for r in conn.execute(
+                """
+                SELECT domain, COUNT(*) AS total_7d, SUM(is_up) AS up_7d
+                FROM uptime_checks
+                WHERE ts >= ?
+                GROUP BY domain
+                """,
+                (cutoff_7d,),
+            ).fetchall()
+        }
+        latest_rows = conn.execute(
+            """
+            SELECT u.domain, u.url, u.ts, u.is_up, u.status_code, u.latency_ms, u.error
+            FROM uptime_checks u
+            INNER JOIN (
+                SELECT domain, MAX(id) AS max_id
+                FROM uptime_checks
+                GROUP BY domain
+            ) m ON u.id = m.max_id
+            """
+        ).fetchall()
+
+        for r in latest_rows:
+            dom = r["domain"]
+            a24 = agg_24.get(dom, {})
+            a7 = agg_7d.get(dom, {})
+            t24 = a24.get("total_24h") or 0
+            u24 = a24.get("up_24h") or 0
+            t7 = a7.get("total_7d") or 0
+            u7 = a7.get("up_7d") or 0
+            out[dom] = {
+                "domain": dom,
+                "url": r["url"],
+                "last_ts": r["ts"],
+                "is_up": bool(r["is_up"]),
+                "status_code": r["status_code"],
+                "latency_ms": r["latency_ms"],
+                "error": r["error"],
+                "uptime_24h": round((u24 / t24) * 100.0, 2) if t24 > 0 else 100.0,
+                "uptime_7d": round((u7 / t7) * 100.0, 2) if t7 > 0 else 100.0,
+                "avg_latency_24h": int(a24.get("avg_latency_24h") or r["latency_ms"] or 0),
+                "checks_24h": t24,
+            }
+    return out
+
+
+def upsert_ssl_status(
+    domain: str,
+    valid: bool,
+    days_left: int,
+    not_after: str,
+    issuer: str,
+    tls_version: str,
+    error: str = "",
+) -> None:
+    now = int(time.time())
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO ssl_status (domain, checked_at, valid, days_left, not_after, issuer, tls_version, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(domain) DO UPDATE SET
+                checked_at = excluded.checked_at,
+                valid = excluded.valid,
+                days_left = excluded.days_left,
+                not_after = excluded.not_after,
+                issuer = excluded.issuer,
+                tls_version = excluded.tls_version,
+                error = excluded.error
+            """,
+            (domain, now, 1 if valid else 0, days_left, not_after[:80], issuer[:160], tls_version[:40], error[:300]),
+        )
+
+
+def get_all_ssl_status() -> Dict[str, Dict[str, Any]]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM ssl_status").fetchall()
+        return {r["domain"]: dict(r) for r in rows}
+
+
+def upsert_security_scan(domain: str, score: int, grade: str, db_name: str, findings_json: str) -> None:
+    now = int(time.time())
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO security_scans (domain, scanned_at, score, grade, db_name, findings_json)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(domain) DO UPDATE SET
+                scanned_at = excluded.scanned_at,
+                score = excluded.score,
+                grade = excluded.grade,
+                db_name = excluded.db_name,
+                findings_json = excluded.findings_json
+            """,
+            (domain, now, int(score), grade[:4], db_name[:120], findings_json),
+        )
+
+
+def get_all_security_scans() -> Dict[str, Dict[str, Any]]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM security_scans").fetchall()
+        return {r["domain"]: dict(r) for r in rows}
+
+
+def get_open_incident(incident_key: str) -> Optional[Dict[str, Any]]:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM incidents WHERE incident_key = ? AND status = 'open' ORDER BY id DESC LIMIT 1",
+            (incident_key,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def create_or_touch_incident(
+    incident_key: str,
+    kind: str,
+    severity: str,
+    target: str,
+    title: str,
+    detail: str,
+) -> Dict[str, Any]:
+    now = int(time.time())
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM incidents WHERE incident_key = ? AND status = 'open' ORDER BY id DESC LIMIT 1",
+            (incident_key,),
+        ).fetchone()
+        if row:
+            conn.execute(
+                "UPDATE incidents SET severity = ?, title = ?, detail = ?, updated_at = ? WHERE id = ?",
+                (severity, title[:200], detail[:500], now, row["id"]),
+            )
+            d = dict(row)
+            d.update({"severity": severity, "title": title[:200], "detail": detail[:500], "updated_at": now, "is_new": False})
+            return d
+
+        cur = conn.execute(
+            """
+            INSERT INTO incidents (incident_key, kind, severity, target, title, detail, status, opened_at, updated_at, resolved_at, notified_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, 0, 0)
+            """,
+            (incident_key[:140], kind[:60], severity[:20], target[:160], title[:200], detail[:500], now, now),
+        )
+        return {
+            "id": cur.lastrowid,
+            "incident_key": incident_key,
+            "kind": kind,
+            "severity": severity,
+            "target": target,
+            "title": title,
+            "detail": detail,
+            "status": "open",
+            "opened_at": now,
+            "updated_at": now,
+            "resolved_at": 0,
+            "notified_at": 0,
+            "is_new": True,
+        }
+
+
+def mark_incident_notified(incident_id: int) -> None:
+    now = int(time.time())
+    with get_conn() as conn:
+        conn.execute("UPDATE incidents SET notified_at = ? WHERE id = ?", (now, incident_id))
+
+
+def resolve_open_incident(incident_key: str, resolution_detail: str = "") -> Optional[Dict[str, Any]]:
+    now = int(time.time())
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM incidents WHERE incident_key = ? AND status = 'open' ORDER BY id DESC LIMIT 1",
+            (incident_key,),
+        ).fetchone()
+        if not row:
+            return None
+        new_detail = resolution_detail[:500] if resolution_detail else row["detail"]
+        conn.execute(
+            "UPDATE incidents SET status = 'resolved', resolved_at = ?, updated_at = ?, detail = ? WHERE id = ?",
+            (now, now, new_detail, row["id"]),
+        )
+        d = dict(row)
+        d.update({"status": "resolved", "resolved_at": now, "updated_at": now, "detail": new_detail})
+        return d
+
+
+def list_incidents(limit: int = 60, status_filter: str = "") -> List[Dict[str, Any]]:
+    safe_limit = max(1, min(int(limit), 250))
+    with get_conn() as conn:
+        if status_filter in ("open", "resolved"):
+            rows = conn.execute(
+                "SELECT * FROM incidents WHERE status = ? ORDER BY CASE WHEN status='open' THEN 0 ELSE 1 END, opened_at DESC LIMIT ?",
+                (status_filter, safe_limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM incidents ORDER BY CASE WHEN status='open' THEN 0 ELSE 1 END, opened_at DESC LIMIT ?",
+                (safe_limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
 # --- Housekeeping ---
 
 def purge_expired_data(session_max_age: int = 86400 * 7, audit_retention_days: int = 180) -> Dict[str, int]:
     now = int(time.time())
     sess_cutoff = now - session_max_age
     audit_cutoff = now - (max(7, audit_retention_days) * 86400)
+    uptime_cutoff = now - (14 * 86400)
+    incidents_cutoff = now - (90 * 86400)
     with get_conn() as conn:
         c1 = conn.execute("DELETE FROM sessions WHERE created_at < ? OR (revoked = 1 AND last_seen < ?)", (sess_cutoff, now - 86400)).rowcount
         c2 = conn.execute("DELETE FROM audit_logs WHERE ts < ?", (audit_cutoff,)).rowcount
-    return {"purged_sessions": c1, "purged_audit_logs": c2}
+        c3 = conn.execute("DELETE FROM uptime_checks WHERE ts < ?", (uptime_cutoff,)).rowcount
+        c4 = conn.execute("DELETE FROM incidents WHERE status = 'resolved' AND resolved_at > 0 AND resolved_at < ?", (incidents_cutoff,)).rowcount
+    return {"purged_sessions": c1, "purged_audit_logs": c2, "purged_uptime": c3, "purged_incidents": c4}

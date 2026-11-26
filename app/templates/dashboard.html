@@ -135,6 +135,7 @@
             <button class="tab-btn active" data-tab="monitoreo" onclick="switchTab('monitoreo')">📊 Monitoreo</button>
             <button class="tab-btn" data-tab="bases" onclick="switchTab('bases')">🗄️ Bases de Datos <span class="tab-count">{{ total_dbs }}</span></button>
             <button class="tab-btn" data-tab="contenedores" onclick="switchTab('contenedores')">🐳 Contenedores <span class="tab-count">{{ running_containers }}/{{ total_containers }}</span></button>
+            <button class="tab-btn" data-tab="salud" onclick="switchTab('salud')">🩺 Salud y Diagnóstico</button>
             <button class="tab-btn" data-tab="auditoria" onclick="switchTab('auditoria')">🛡️ Auditoría y Acceso</button>
         </nav>
     </div>
@@ -469,7 +470,165 @@
                 </div>
             </div>
         </section>
+
+        <section id="tab-salud" class="tab-panel">
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <h2 class="section-title">Disponibilidad Web, Certificados SSL y Postura de Seguridad</h2>
+                </div>
+                <div class="toolbar-right">
+                    <button class="btn-secondary" style="min-height:36px;padding:0.42rem 0.85rem;" onclick="runHealthCheckNow(this)">🔄 Sondear Uptime/SSL</button>
+                    <button class="btn-sso" style="min-height:36px;padding:0.42rem 0.95rem;" onclick="runSecurityScanAll(this)">🔍 Escanear Seguridad (Todos)</button>
+                    <button class="btn-secondary" style="min-height:36px;padding:0.42rem 0.85rem;" onclick="openNotifyModal()">🔔 Configurar Alertas</button>
+                </div>
+            </div>
+
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-head">
+                        <span class="kpi-label">🌐 Disponibilidad (Uptime)</span>
+                        <span class="pill pill-running" id="hlthOnlinePill">-- / --</span>
+                    </div>
+                    <div class="kpi-value" id="hlthUptimeVal">-- %</div>
+                    <div class="kpi-sub">Promedio últimas 24h (chequeo automático cada 1 min).</div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-head">
+                        <span class="kpi-label">🔒 Certificados SSL/TLS</span>
+                        <span class="pill" id="hlthSslPill">--</span>
+                    </div>
+                    <div class="kpi-value" id="hlthSslMinDays">-- días</div>
+                    <div class="kpi-sub">Vigencia mínima entre todos los dominios activos.</div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-head">
+                        <span class="kpi-label">🛡️ Postura de Seguridad</span>
+                        <span class="pill pill-version" id="hlthGradePill">Nota --</span>
+                    </div>
+                    <div class="kpi-value" id="hlthAvgScore">-- / 100</div>
+                    <div class="kpi-sub">TLS, Odoo DB Manager, Cabeceras HTTP, Cookies y DNS.</div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-head">
+                        <span class="kpi-label">🚨 Incidentes Activos</span>
+                        <span class="pill" id="hlthIncPill">0 abiertos</span>
+                    </div>
+                    <div class="kpi-value" id="hlthIncVal">Sin caídas</div>
+                    <div class="kpi-sub">Detección con auto-cierre al recuperarse el servicio.</div>
+                </div>
+            </div>
+
+            <div class="proc-panel" style="margin-bottom:1.4rem;">
+                <div class="proc-toolbar">
+                    <strong style="color:var(--sos-secondary);font-size:0.93rem;">⚡ Historial de Incidentes y Alertas Automáticas</strong>
+                </div>
+                <div class="table-scroll" style="max-height:220px;">
+                    <table class="proc-table">
+                        <thead>
+                            <tr>
+                                <th>Estado</th>
+                                <th>Severidad</th>
+                                <th>Objetivo</th>
+                                <th>Incidente</th>
+                                <th>Apertura</th>
+                                <th>Detalle / Resolución</th>
+                            </tr>
+                        </thead>
+                        <tbody id="incidentsTbody">
+                            <tr><td colspan="6" style="text-align:center;padding:1.1rem;color:var(--sos-muted);">Sin incidentes registrados.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="toolbar" style="margin-bottom:0.85rem;">
+                <div class="toolbar-left">
+                    <strong style="color:var(--sos-secondary);font-size:1rem;">🔍 Diagnóstico por Dominio / Instancia</strong>
+                </div>
+                <div class="toolbar-right">
+                    <input type="text" id="healthSearchInput" class="search-input" placeholder="Filtrar dominio, base de datos o contenedor..." oninput="filterHealthDomains()">
+                    <button class="btn-chip" onclick="toggleAllFold('#healthDomainList', true)">Expandir todos</button>
+                    <button class="btn-chip" onclick="toggleAllFold('#healthDomainList', false)">Colapsar todos</button>
+                </div>
+            </div>
+
+            <div class="fold-list" id="healthDomainList">
+                <div style="text-align:center;padding:1.5rem;color:var(--sos-muted);background:#fff;border-radius:12px;border:1px solid var(--border-color);">Cargando estado de dominios...</div>
+            </div>
+        </section>
     </main>
+
+    <div class="modal-backdrop" id="notifyModal">
+        <div class="modal-box" style="background:#fff;color:#2e1f14;max-width:600px;">
+            <div class="modal-header" style="background:#51344D;color:#fff;">
+                <strong>🔔 Canales de Alerta (Telegram, Webhook/n8n, SMTP)</strong>
+                <button class="btn-close" style="min-height:32px;padding:0.3rem 0.75rem;" onclick="closeNotifyModal()">✕</button>
+            </div>
+            <div style="padding:1.25rem;overflow-y:auto;display:flex;flex-direction:column;gap:0.9rem;font-family:'Poppins',sans-serif;font-size:0.83rem;">
+                <div class="fold-body-grid" style="margin-bottom:0;">
+                    <div class="field-group">
+                        <label>Nombre identificador de este servidor:</label>
+                        <input type="text" id="ntfServerLabel" placeholder="cloud.solucionesos.com">
+                    </div>
+                    <div class="field-group">
+                        <label>Alerta de Disco lleno al superar (%):</label>
+                        <input type="number" id="ntfDiskThreshold" min="50" max="98" value="85">
+                    </div>
+                </div>
+
+                <div style="border:1px solid var(--border-color);border-radius:10px;padding:0.85rem;background:#faf8f6;">
+                    <label style="display:flex;align-items:center;gap:0.5rem;font-weight:700;color:var(--sos-secondary);margin-bottom:0.6rem;cursor:pointer;">
+                        <input type="checkbox" id="ntfTgEnabled" style="width:auto;"> Activar Telegram Bot
+                    </label>
+                    <div class="fold-body-grid" style="margin-bottom:0;">
+                        <div class="field-group"><label>Bot Token:</label><input type="password" id="ntfTgToken" placeholder="123456:ABC-DEF..."></div>
+                        <div class="field-group"><label>Chat ID (usuario o grupo):</label><input type="text" id="ntfTgChat" placeholder="-100123456789"></div>
+                    </div>
+                </div>
+
+                <div style="border:1px solid var(--border-color);border-radius:10px;padding:0.85rem;background:#faf8f6;">
+                    <label style="display:flex;align-items:center;gap:0.5rem;font-weight:700;color:var(--sos-secondary);margin-bottom:0.6rem;cursor:pointer;">
+                        <input type="checkbox" id="ntfWhEnabled" style="width:auto;"> Activar Webhook HTTP (n8n / Slack / Discord)
+                    </label>
+                    <div class="fold-body-grid" style="margin-bottom:0;">
+                        <div class="field-group"><label>URL Webhook (POST JSON):</label><input type="text" id="ntfWhUrl" placeholder="https://n8n.tudominio.com/webhook/..."></div>
+                        <div class="field-group"><label>Secreto HMAC opcional (X-SOS-Signature):</label><input type="password" id="ntfWhSecret" placeholder="Opcional"></div>
+                    </div>
+                </div>
+
+                <div style="border:1px solid var(--border-color);border-radius:10px;padding:0.85rem;background:#faf8f6;">
+                    <label style="display:flex;align-items:center;gap:0.5rem;font-weight:700;color:var(--sos-secondary);margin-bottom:0.6rem;cursor:pointer;">
+                        <input type="checkbox" id="ntfSmtpEnabled" style="width:auto;"> Activar Correo SMTP
+                    </label>
+                    <div class="fold-body-grid" style="margin-bottom:0;">
+                        <div class="field-group"><label>Servidor SMTP:</label><input type="text" id="ntfSmtpHost" placeholder="smtp.gmail.com"></div>
+                        <div class="field-group"><label>Puerto (587 STARTTLS / 465 SSL):</label><input type="number" id="ntfSmtpPort" value="587"></div>
+                        <div class="field-group"><label>Usuario SMTP:</label><input type="text" id="ntfSmtpUser"></div>
+                        <div class="field-group"><label>Contraseña SMTP:</label><input type="password" id="ntfSmtpPass"></div>
+                        <div class="field-group"><label>Correo Remitente (From):</label><input type="text" id="ntfSmtpFrom" placeholder="alertas@tudominio.com"></div>
+                        <div class="field-group"><label>Destinatario(s) (To):</label><input type="text" id="ntfSmtpTo" placeholder="admin@tudominio.com"></div>
+                    </div>
+                </div>
+
+                <div class="field-group">
+                    <label>Clave maestra del panel (requerida para guardar cambios):</label>
+                    <input type="password" id="ntfMasterPass" placeholder="••••••••••••" autocomplete="off">
+                </div>
+                <div id="ntfFeedback" style="display:none;padding:0.6rem 0.8rem;border-radius:8px;font-size:0.8rem;"></div>
+
+                <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:0.6rem;">
+                    <button class="btn-secondary" onclick="sendTestNotification(this)">📨 Enviar mensaje de prueba</button>
+                    <div style="display:flex;gap:0.6rem;">
+                        <button class="btn-secondary" onclick="closeNotifyModal()">Cerrar</button>
+                        <button class="btn-sso" onclick="saveNotifySettings(this)">💾 Guardar Configuración</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <div class="modal-backdrop" id="twoFaModal">
         <div class="modal-box" style="background:#fff;color:#2e1f14;max-width:480px;">
@@ -505,6 +664,7 @@
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabName));
             document.querySelectorAll('.tab-panel').forEach(panel => panel.id === 'tab-' + tabName ? panel.classList.add('active') : panel.classList.remove('active'));
             if (tabName === 'monitoreo') fetchMonitoring();
+            if (tabName === 'salud') fetchHealthOverview();
             if (tabName === 'auditoria') refreshSecurityTab();
         }
         function toggleFold(itemEl) { itemEl.classList.toggle('open'); }
@@ -987,6 +1147,271 @@
                 refreshSecurityTab();
             } finally {
                 btn.disabled = false;
+            }
+        }
+
+        function scorePillStyle(score) {
+            if (score === null || score === undefined) return 'background:#f5f2f0;color:#6f665f;';
+            if (score >= 85) return 'background:rgba(16,185,129,0.15);color:#065f46;';
+            if (score >= 65) return 'background:rgba(245,158,11,0.18);color:#92400e;';
+            return 'background:rgba(239,68,68,0.15);color:#991b1b;';
+        }
+
+        async function fetchHealthOverview() {
+            try {
+                const res = await fetch('/api/health/overview');
+                if (!res.ok) return;
+                const d = await res.json();
+                const s = d.summary || {};
+
+                document.getElementById('hlthOnlinePill').innerText = `${s.up_targets ?? 0} / ${s.total_targets ?? 0} online`;
+                document.getElementById('hlthOnlinePill').className = (s.up_targets === s.total_targets) ? 'pill pill-running' : 'pill pill-stopped';
+                document.getElementById('hlthUptimeVal').innerText = `${s.global_uptime_24h ?? 100}%`;
+
+                const minSsl = s.min_ssl_days;
+                document.getElementById('hlthSslMinDays').innerText = minSsl !== null && minSsl !== undefined ? `${minSsl} días` : 'N/A';
+                const sslPill = document.getElementById('hlthSslPill');
+                if (minSsl === null || minSsl === undefined) { sslPill.className = 'pill'; sslPill.innerText = 'Sin datos'; }
+                else if (minSsl <= 14) { sslPill.className = 'pill pill-stopped'; sslPill.innerText = 'Por vencer'; }
+                else { sslPill.className = 'pill pill-running'; sslPill.innerText = 'Vigentes'; }
+
+                document.getElementById('hlthAvgScore').innerText = s.avg_security_score !== null && s.avg_security_score !== undefined ? `${s.avg_security_score} / 100` : 'Pendiente';
+                document.getElementById('hlthGradePill').innerText = `Nota ${s.avg_security_grade || '-'}`;
+
+                const openInc = s.open_incidents ?? 0;
+                const incPill = document.getElementById('hlthIncPill');
+                incPill.innerText = `${openInc} abierto${openInc === 1 ? '' : 's'}`;
+                incPill.className = openInc > 0 ? 'pill pill-stopped' : 'pill pill-running';
+                document.getElementById('hlthIncVal').innerText = openInc > 0 ? `${openInc} en curso` : 'Todo operativo';
+
+                const incs = d.incidents || [];
+                const incTbody = document.getElementById('incidentsTbody');
+                if (!incs.length) {
+                    incTbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:1.1rem;color:var(--sos-muted);">No se han registrado incidentes de disponibilidad, SSL ni disco.</td></tr>';
+                } else {
+                    incTbody.innerHTML = incs.map(inc => {
+                        const isOpen = inc.status === 'open';
+                        const stBadge = isOpen ? '<span class="pill pill-stopped">ABIERTO</span>' : '<span class="pill pill-running">RESUELTO</span>';
+                        const sevBadge = inc.severity === 'critical' ? '<span class="pill pill-stopped">CRÍTICO</span>' : '<span class="pill" style="background:rgba(245,158,11,0.18);color:#92400e;">AVISO</span>';
+                        return `
+                            <tr>
+                                <td>${stBadge}</td>
+                                <td>${sevBadge}</td>
+                                <td><strong><code>${escHtml(inc.target)}</code></strong></td>
+                                <td><strong>${escHtml(inc.title)}</strong></td>
+                                <td style="font-size:0.75rem;white-space:nowrap;">${fmtTs(inc.opened_at)}</td>
+                                <td style="font-size:0.76rem;color:#4e4640;">${escHtml(inc.detail)}</td>
+                            </tr>`;
+                    }).join('');
+                }
+
+                const targets = d.targets || [];
+                const listEl = document.getElementById('healthDomainList');
+                if (!targets.length) {
+                    listEl.innerHTML = '<div style="text-align:center;padding:1.5rem;color:var(--sos-muted);background:#fff;border-radius:12px;">No se detectaron dominios públicos en Nginx.</div>';
+                    return;
+                }
+
+                listEl.innerHTML = targets.map(t => {
+                    const up = t.uptime || {};
+                    const sl = t.ssl || {};
+                    const sec = t.security || {};
+                    const isUp = up.is_up !== false;
+                    const subParts = [];
+                    if (t.company_name) subParts.push(t.company_name);
+                    if (t.db_name) subParts.push(`BD: ${t.db_name}`);
+                    if (t.container_name) subParts.push(`Docker: ${t.container_name}`);
+                    const subTxt = subParts.join(' • ') || (t.is_odoo ? 'Instancia Odoo' : 'Servicio Web');
+
+                    const latTxt = up.latency_ms !== undefined ? `⚡ ${up.latency_ms} ms` : '⚡ -- ms';
+                    const up24Txt = up.uptime_24h !== undefined ? `📈 ${up.uptime_24h}% (24h)` : '📈 --%';
+                    const sslTxt = sl.valid ? `🔒 SSL ${sl.days_left}d (${sl.tls_version || 'TLS'})` : (sl.error ? '🔓 SSL Error' : '🔒 SSL --');
+                    const sslClass = sl.valid && sl.days_left > 14 ? 'pill-running' : (sl.error ? 'pill-stopped' : '');
+                    const scTxt = sec.score !== null && sec.score !== undefined ? `🛡️ ${sec.score}/100 (${sec.grade})` : '🛡️ Sin escanear';
+
+                    const findings = sec.findings || [];
+                    const findingsHtml = findings.length ? `
+                        <div class="table-scroll" style="max-height:340px;border:1px solid var(--border-color);border-radius:10px;background:#fff;margin-bottom:0.85rem;">
+                            <table class="proc-table">
+                                <thead><tr><th>Control</th><th>Evaluación</th><th>Estado</th><th>Puntos</th><th>Detalle / Recomendación</th></tr></thead>
+                                <tbody>
+                                    ${findings.map(f => {
+                                        const fBadge = f.status === 'pass'
+                                            ? '<span class="pill pill-running">PASÓ</span>'
+                                            : (f.status === 'fail' ? '<span class="pill pill-stopped">CRÍTICO</span>' : '<span class="pill" style="background:rgba(245,158,11,0.18);color:#92400e;">MEJORAR</span>');
+                                        return `<tr>
+                                            <td><code>${escHtml(f.control)}</code></td>
+                                            <td><strong>${escHtml(f.title)}</strong></td>
+                                            <td>${fBadge}</td>
+                                            <td><strong>${escHtml(f.points)}</strong></td>
+                                            <td style="font-size:0.76rem;color:#4e4640;">${escHtml(f.detail)}</td>
+                                        </tr>`;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>` : '<div style="padding:0.8rem;color:var(--sos-muted);font-size:0.82rem;">Pulse "Re-escanear este dominio" para generar el informe detallado de postura de seguridad.</div>';
+
+                    const searchHay = `${t.domain} ${t.db_name || ''} ${t.container_name || ''} ${t.company_name || ''}`.toLowerCase();
+                    return `
+                        <div class="fold-item" data-hsearch="${escHtml(searchHay)}">
+                            <div class="fold-header" onclick="toggleFold(this.parentElement)">
+                                <div class="fold-left">
+                                    <span class="chevron">▸</span>
+                                    <span class="status-dot ${isUp ? 'status-running' : 'status-stopped'}"></span>
+                                    <div>
+                                        <div class="item-title">${escHtml(t.domain)}</div>
+                                        <div class="item-sub">${escHtml(subTxt)}${up.error ? ' • ⚠️ ' + escHtml(up.error) : ''}</div>
+                                    </div>
+                                </div>
+                                <div class="fold-right">
+                                    <span class="pill">${escHtml(latTxt)}</span>
+                                    <span class="pill">${escHtml(up24Txt)}</span>
+                                    <span class="pill ${sslClass}">${escHtml(sslTxt)}</span>
+                                    <span class="pill" style="${scorePillStyle(sec.score)}">${escHtml(scTxt)}</span>
+                                </div>
+                            </div>
+                            <div class="fold-body">
+                                ${findingsHtml}
+                                <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:0.6rem;">
+                                    <span style="font-size:0.75rem;color:var(--sos-muted);">Último escaneo: ${sec.scanned_at ? fmtTs(sec.scanned_at) : 'Pendiente'} • Emisor SSL: ${escHtml(sl.issuer || '--')}</span>
+                                    <div style="display:flex;gap:0.5rem;">
+                                        <a href="${escHtml(t.url)}" target="_blank" class="btn-secondary" style="min-height:34px;padding:0.35rem 0.8rem;">🔗 Visitar Sitio</a>
+                                        <button class="btn-sso" style="min-height:34px;padding:0.35rem 0.9rem;" onclick="runSecurityScanSingle('${escHtml(t.domain)}', this)">🔍 Re-escanear este dominio</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>`;
+                }).join('');
+                filterHealthDomains();
+            } catch (e) {}
+        }
+
+        function filterHealthDomains() {
+            const q = (document.getElementById('healthSearchInput')?.value || '').toLowerCase().trim();
+            document.querySelectorAll('#healthDomainList .fold-item').forEach(el => {
+                el.style.display = (el.getAttribute('data-hsearch') || '').includes(q) ? 'block' : 'none';
+            });
+        }
+
+        async function runHealthCheckNow(btn) {
+            const orig = btn.innerText;
+            btn.disabled = true; btn.innerText = '⏳ Sondeando...';
+            try {
+                await fetch('/api/health/check-now', {method: 'POST'});
+                await fetchHealthOverview();
+            } finally {
+                btn.disabled = false; btn.innerText = orig;
+            }
+        }
+
+        async function runSecurityScanAll(btn) {
+            const orig = btn.innerText;
+            btn.disabled = true; btn.innerText = '⏳ Auditando dominios...';
+            try {
+                const res = await fetch('/api/health/scan', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
+                const d = await res.json();
+                await fetchHealthOverview();
+                if (d.message) alert(d.message);
+            } finally {
+                btn.disabled = false; btn.innerText = orig;
+            }
+        }
+
+        async function runSecurityScanSingle(domain, btn) {
+            const orig = btn.innerText;
+            btn.disabled = true; btn.innerText = '⏳ Escaneando...';
+            try {
+                await fetch('/api/health/scan', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({domain})
+                });
+                await fetchHealthOverview();
+            } finally {
+                btn.disabled = false; btn.innerText = orig;
+            }
+        }
+
+        function closeNotifyModal() {
+            document.getElementById('notifyModal').classList.remove('active');
+        }
+
+        async function openNotifyModal() {
+            document.getElementById('ntfFeedback').style.display = 'none';
+            document.getElementById('ntfMasterPass').value = '';
+            document.getElementById('notifyModal').classList.add('active');
+            const res = await fetch('/api/notifications/config');
+            if (!res.ok) return;
+            const d = await res.json();
+            const c = d.config || {};
+            document.getElementById('ntfServerLabel').value = c.server_label || '';
+            document.getElementById('ntfDiskThreshold').value = c.disk_alert_threshold ?? 85;
+            document.getElementById('ntfTgEnabled').checked = !!c.telegram_enabled;
+            document.getElementById('ntfTgToken').value = c.telegram_bot_token || '';
+            document.getElementById('ntfTgChat').value = c.telegram_chat_id || '';
+            document.getElementById('ntfWhEnabled').checked = !!c.webhook_enabled;
+            document.getElementById('ntfWhUrl').value = c.webhook_url || '';
+            document.getElementById('ntfWhSecret').value = c.webhook_secret || '';
+            document.getElementById('ntfSmtpEnabled').checked = !!c.smtp_enabled;
+            document.getElementById('ntfSmtpHost').value = c.smtp_host || '';
+            document.getElementById('ntfSmtpPort').value = c.smtp_port ?? 587;
+            document.getElementById('ntfSmtpUser').value = c.smtp_user || '';
+            document.getElementById('ntfSmtpPass').value = c.smtp_password || '';
+            document.getElementById('ntfSmtpFrom').value = c.smtp_from || '';
+            document.getElementById('ntfSmtpTo').value = c.smtp_to || '';
+        }
+
+        async function saveNotifySettings(btn) {
+            const fb = document.getElementById('ntfFeedback');
+            fb.style.display = 'none';
+            btn.disabled = true;
+            const cfg = {
+                server_label: document.getElementById('ntfServerLabel').value.trim(),
+                disk_alert_threshold: parseInt(document.getElementById('ntfDiskThreshold').value || '85', 10),
+                telegram_enabled: document.getElementById('ntfTgEnabled').checked,
+                telegram_bot_token: document.getElementById('ntfTgToken').value.trim(),
+                telegram_chat_id: document.getElementById('ntfTgChat').value.trim(),
+                webhook_enabled: document.getElementById('ntfWhEnabled').checked,
+                webhook_url: document.getElementById('ntfWhUrl').value.trim(),
+                webhook_secret: document.getElementById('ntfWhSecret').value.trim(),
+                smtp_enabled: document.getElementById('ntfSmtpEnabled').checked,
+                smtp_host: document.getElementById('ntfSmtpHost').value.trim(),
+                smtp_port: parseInt(document.getElementById('ntfSmtpPort').value || '587', 10),
+                smtp_user: document.getElementById('ntfSmtpUser').value.trim(),
+                smtp_password: document.getElementById('ntfSmtpPass').value,
+                smtp_from: document.getElementById('ntfSmtpFrom').value.trim(),
+                smtp_to: document.getElementById('ntfSmtpTo').value.trim(),
+            };
+            try {
+                const res = await fetch('/api/notifications/config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({admin_password: document.getElementById('ntfMasterPass').value, config: cfg})
+                });
+                const d = await res.json();
+                fb.style.display = 'block';
+                fb.style.background = (res.ok && d.ok) ? '#ecfdf5' : '#fde8e8';
+                fb.style.color = (res.ok && d.ok) ? '#065f46' : '#9b1c1c';
+                fb.innerText = d.message || d.detail || 'Error guardando configuración.';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function sendTestNotification(btn) {
+            const fb = document.getElementById('ntfFeedback');
+            fb.style.display = 'none';
+            const orig = btn.innerText;
+            btn.disabled = true; btn.innerText = '⏳ Enviando...';
+            try {
+                const res = await fetch('/api/notifications/test', {method: 'POST'});
+                const d = await res.json();
+                fb.style.display = 'block';
+                fb.style.background = (res.ok && d.ok) ? '#ecfdf5' : '#fde8e8';
+                fb.style.color = (res.ok && d.ok) ? '#065f46' : '#9b1c1c';
+                fb.innerText = d.message || d.detail || 'Error en prueba de envío.';
+            } finally {
+                btn.disabled = false; btn.innerText = orig;
             }
         }
 
