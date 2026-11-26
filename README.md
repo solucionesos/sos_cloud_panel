@@ -49,12 +49,17 @@ El script `deploy.sh`:
    sudo certbot --nginx -d cloud.tudominio.com
    ```
 
-### Habilitar SSO en contenedores Odoo
+### Habilitar SSO en contenedores Odoo (Automático)
 
-Para que el botón de acceso directo (SSO) funcione en cada instancia Odoo:
-1. Monta `./shared_addons` dentro de la ruta de addons del contenedor Odoo (por ejemplo `/mnt/extra-addons/shared_addons`).
-2. Agrega la misma variable `SOS_SSO_SECRET` de tu `.env` al entorno del contenedor Odoo (o `sos_sso_secret` en `odoo.conf`).
-3. El módulo `sos_sso_bridge` tiene `auto_install: True`.
+`deploy.sh` ejecuta automáticamente `./setup_sso.sh`, el cual recorre cada contenedor Odoo en ejecución en el servidor y:
+1. Copia `shared_addons/sos_sso_bridge` en su ruta de `addons_path` (en el host si es bind-mount, o dentro del contenedor).
+2. Configura `sos_sso_secret` en su `odoo.conf` con el `SOS_SSO_SECRET` del panel.
+3. Instala `sos_sso_bridge` en las bases de datos Odoo existentes donde aún no esté instalado y reinicia el contenedor si hubo cambios.
+
+Si creas un nuevo contenedor Odoo más adelante, solo ejecuta:
+```bash
+./setup_sso.sh
+```
 
 ---
 

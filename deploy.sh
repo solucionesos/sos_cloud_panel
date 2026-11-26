@@ -172,13 +172,17 @@ fi
 log "Construyendo e iniciando sos_cloud_panel..."
 $COMPOSE_CMD up -d --build
 
+# 6. Configurar SSO automáticamente en todos los contenedores Odoo activos
+if [[ "${1:-}" != "--skip-sso" && -x "${SCRIPT_DIR}/setup_sso.sh" ]]; then
+  echo ""
+  log "Configurando SSO automáticamente en los contenedores Odoo detectados..."
+  "${SCRIPT_DIR}/setup_sso.sh" || warn "Algunos contenedores Odoo no pudieron configurarse automáticamente."
+fi
+
 echo ""
 log "Despliegue finalizado correctamente."
 echo -e "  • Panel escuchando en: ${CYAN}http://${PANEL_BIND_IP:-127.0.0.1}:${PANEL_PORT:-8095}${NC}"
 echo -e "  • Red Docker:          ${CYAN}${DOCKER_NETWORK}${NC}"
 echo -e "  • Nginx de ejemplo:    ${CYAN}${SCRIPT_DIR}/nginx.example.conf${NC}"
 echo ""
-warn "Para habilitar SSO en los contenedores Odoo de este servidor:"
-echo "  1. Monte '${SCRIPT_DIR}/shared_addons' en el addons-path de sus contenedores Odoo."
-echo "  2. Configure la misma variable de entorno SOS_SSO_SECRET en esos contenedores:"
-echo -e "     ${CYAN}SOS_SSO_SECRET=${SOS_SSO_SECRET}${NC}"
+log "Si agregas nuevos contenedores Odoo en el futuro, ejecuta ./setup_sso.sh para habilitarles el SSO."
