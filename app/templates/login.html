@@ -22,8 +22,11 @@
         label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--sos-dark); margin-bottom: 0.4rem; }
         input { width: 100%; padding: 0.78rem 1rem; border: 1.5px solid #ded8d3; border-radius: 10px; font-size: 0.94rem; }
         input:focus { outline: none; border-color: var(--sos-primary); box-shadow: 0 0 0 3px rgba(225, 119, 38, 0.18); }
+        .totp-input { text-align: center; font-size: 1.25rem; letter-spacing: 0.18em; font-weight: 700; }
         .btn-submit { width: 100%; background: var(--sos-primary); color: #ffffff; border: none; padding: 0.88rem; border-radius: 10px; font-size: 0.96rem; font-weight: 600; cursor: pointer; margin-top: 0.4rem; }
         .btn-submit:hover { background: var(--sos-primary-hover); }
+        .back-link { display: block; text-align: center; margin-top: 1rem; font-size: 0.82rem; color: var(--sos-secondary); text-decoration: none; font-weight: 600; }
+        .back-link:hover { text-decoration: underline; }
         .error-alert { background: #fde8e8; color: #9b1c1c; border-left: 4px solid #e02424; padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.83rem; margin-bottom: 1.2rem; }
         .footer-note { text-align: center; margin-top: 1.5rem; font-size: 0.76rem; color: #8c827a; }
     </style>
@@ -34,6 +37,21 @@
             <img src="/static/logotipo.png" alt="Soluciones Open Source" onerror="this.style.display='none'">
             <span class="brand-pill">Cloud Control Panel</span>
         </div>
+
+        {% if step == '2fa' %}
+        <h1>Verificación en 2 Pasos</h1>
+        <p class="subtitle">Ingrese el código de 6 dígitos de su aplicación autenticadora o un código de respaldo</p>
+        {% if error %}<div class="error-alert">{{ error }}</div>{% endif %}
+        <form method="POST" action="/login/2fa">
+            <input type="hidden" name="preauth_token" value="{{ preauth_token }}">
+            <div class="form-group">
+                <label for="totp_code">Código 2FA / Respaldo</label>
+                <input type="text" id="totp_code" name="totp_code" class="totp-input" required autofocus autocomplete="one-time-code" placeholder="000000">
+            </div>
+            <button type="submit" class="btn-submit">Verificar e Ingresar</button>
+            <a href="/login" class="back-link">← Volver al inicio de sesión</a>
+        </form>
+        {% else %}
         <h1>Acceso al Panel</h1>
         <p class="subtitle">Monitoreo, Bases de Datos Odoo & Contenedores</p>
         {% if error %}<div class="error-alert">{{ error }}</div>{% endif %}
@@ -48,6 +66,8 @@
             </div>
             <button type="submit" class="btn-submit">Ingresar al Panel Cloud</button>
         </form>
+        {% endif %}
+
         <div class="footer-note">cloud.solucionesos.com • Soluciones Open Source</div>
     </div>
 </body>

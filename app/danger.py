@@ -17,6 +17,7 @@ from psycopg2 import sql
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+import audit
 import discovery
 
 router = APIRouter()
@@ -64,6 +65,7 @@ def _authorize(request: Request, data: dict) -> None:
         else:
             _attempts[ip] = (count, 0.0)
         _logger.warning("Clave maestra incorrecta en acción sensible desde %s", ip)
+        audit.log_event(request, "security.master_key", target=request.url.path, status="denied", detail="Clave maestra incorrecta")
         raise HTTPException(status_code=403, detail="Clave maestra del panel incorrecta.")
 
     _attempts.pop(ip, None)
@@ -163,13 +165,16 @@ async def drop_database(request: Request, db_name: str):
             return JSONResponse({"ok": False, "message": "Instancia PostgreSQL inaccesible."}, status_code=500)
 
         _logger.warning("BD '%s' (%s) eliminada desde el panel (IP %s)", db_name, inst.get("container_name") or inst["host"], _client_ip(request))
+        audit.log_event(request, "database.drop", target=db_name, status="ok", detail=f"PostgreSQL: {inst.get('container_name') or inst['host']}")
         return JSONResponse({
             "ok": True,
             "message": f"Base de datos '{db_name}' eliminada. El filestore (adjuntos) no se borra automáticamente.",
         })
     except psycopg2.Error as e:
+        audit.log_event(request, "database.drop", target=db_name, status="error", detail=str(e))
         return JSONResponse({"ok": False, "message": f"Error PostgreSQL: {e.pgerror or e}"}, status_code=500)
     except Exception as e:
+        audit.log_event(request, "database.drop", target=db_name, status="error", detail=str(e))
         return JSONResponse({"ok": False, "message": f"Error eliminando BD: {e}"}, status_code=500)
     finally:
         if conn:
@@ -191,8 +196,10 @@ async def stop_container(request: Request, container_name: str):
     try:
         _get_container(container_name).stop(timeout=15)
         _logger.warning("Contenedor '%s' detenido desde el panel (IP %s)", container_name, _client_ip(request))
+        audit.log_event(request, "container.stop", target=container_name, status="ok")
         return JSONResponse({"ok": True, "message": f"Contenedor '{container_name}' detenido."})
     except Exception as e:
+        audit.log_event(request, "container.stop", target=container_name, status="error", detail=str(e))
         return JSONResponse({"ok": False, "message": str(e)}, status_code=500)
 
 
@@ -204,8 +211,10 @@ async def start_container(request: Request, container_name: str):
     try:
         _get_container(container_name).start()
         _logger.warning("Contenedor '%s' iniciado desde el panel (IP %s)", container_name, _client_ip(request))
+        audit.log_event(request, "container.start", target=container_name, status="ok")
         return JSONResponse({"ok": True, "message": f"Contenedor '{container_name}' iniciado."})
     except Exception as e:
+        audit.log_event(request, "container.start", target=container_name, status="error", detail=str(e))
         return JSONResponse({"ok": False, "message": str(e)}, status_code=500)
 
 
@@ -227,9 +236,11 @@ async def remove_container(request: Request, container_name: str):
         # v=False: los volúmenes con datos NO se eliminan
         container.remove(v=False, force=True)
         _logger.warning("Contenedor '%s' eliminado desde el panel (IP %s)", container_name, _client_ip(request))
+        audit.log_event(request, "container.remove", target=container_name, status="ok", detail="Volúmenes conservados (v=False)")
         return JSONResponse({
             "ok": True,
             "message": f"Contenedor '{container_name}' detenido y eliminado. Sus volúmenes no se borraron.",
         })
     except Exception as e:
+        audit.log_event(request, "container.remove", target=container_name, status="error", detail=str(e))
         return JSONResponse({"ok": False, "message": str(e)}, status_code=500)

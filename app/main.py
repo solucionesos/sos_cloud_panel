@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 import hashlib
 import hmac
 import os
@@ -10,8 +11,9 @@ from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from itsdangerous import BadSignature, URLSafeTimedSerializer
+from itsdangerous import URLSafeTimedSerializer
 
+import audit
 from discovery import (
     discover_odoo_containers,
     discover_odoo_databases,
@@ -19,14 +21,28 @@ from discovery import (
     parse_nginx_domain_mapping,
 )
 from monitoring import get_system_metrics
+import scheduler
+import security_auth
+import storage
 
-app = FastAPI(title="SOS Cloud Control Panel - Odoo.sh Style")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    storage.init_db()
+    scheduler.start_scheduler()
+    yield
+    scheduler.stop_scheduler()
+
+
+app = FastAPI(title="SOS Cloud Control Panel - Odoo.sh Style", lifespan=lifespan)
 
 from danger import router as admin_actions_router  # noqa: E402
+from backups import router as backups_router  # noqa: E402
 
-from backups import router as backups_router
 app.include_router(admin_actions_router)
 app.include_router(backups_router)
+app.include_router(security_auth.router)
+
 if os.path.isdir("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
@@ -41,41 +57,112 @@ SESSION_COOKIE_NAME = "sos_cloud_session"
 
 
 def is_authenticated(request: Request) -> bool:
-    token = request.cookies.get(SESSION_COOKIE_NAME)
-    if not token:
-        return False
-    try:
-        data = serializer.loads(token, max_age=86400 * 7)
-        return data.get("user") == PANEL_ADMIN_USER
-    except BadSignature:
-        return False
+    return security_auth.verify_session_request(request, serializer, SESSION_COOKIE_NAME)
 
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     if is_authenticated(request):
         return RedirectResponse(url="/", status_code=302)
-    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    return templates.TemplateResponse("login.html", {"request": request, "error": None, "step": "credentials"})
 
 
 @app.post("/login", response_class=HTMLResponse)
 async def login_submit(request: Request, username: str = Form(...), password: str = Form(...)):
-    user_ok = hmac.compare_digest(username.strip(), PANEL_ADMIN_USER)
-    pass_ok = hmac.compare_digest(password, PANEL_ADMIN_PASSWORD)
-    if not (user_ok and pass_ok):
+    ip = audit.get_client_ip(request)
+    wait_s = security_auth.check_login_rate_limit(ip)
+    if wait_s:
         return templates.TemplateResponse(
             "login.html",
-            {"request": request, "error": "Credenciales inválidas. Verifique usuario y contraseña."},
+            {"request": request, "error": f"Demasiados intentos fallidos. Intente de nuevo en {wait_s} segundos.", "step": "credentials"},
+            status_code=429,
+        )
+
+    clean_user = username.strip()
+    user_ok = hmac.compare_digest(clean_user, PANEL_ADMIN_USER)
+    pass_ok = hmac.compare_digest(password, PANEL_ADMIN_PASSWORD)
+    if not (user_ok and pass_ok):
+        security_auth.record_login_failure(ip)
+        audit.log_event(
+            request,
+            "auth.login",
+            target=clean_user or "unknown",
+            status="failed",
+            detail="Credenciales inválidas",
+            username=clean_user or "unknown",
+        )
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": "Credenciales inválidas. Verifique usuario y contraseña.", "step": "credentials"},
             status_code=401,
         )
-    token = serializer.dumps({"user": PANEL_ADMIN_USER, "ts": int(time.time())})
+
+    if security_auth.is_totp_enabled():
+        preauth_token = security_auth.create_preauth_token(serializer, PANEL_ADMIN_USER, ip)
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": None, "step": "2fa", "preauth_token": preauth_token},
+        )
+
+    security_auth.clear_login_failures(ip)
+    token, _sid = security_auth.issue_session_cookie_token(serializer, request, PANEL_ADMIN_USER)
+    audit.log_event(request, "auth.login", target=PANEL_ADMIN_USER, status="ok", detail="Sesión iniciada (clave maestra)", username=PANEL_ADMIN_USER)
+    response = RedirectResponse(url="/", status_code=302)
+    response.set_cookie(key=SESSION_COOKIE_NAME, value=token, httponly=True, max_age=86400 * 7, samesite="lax")
+    return response
+
+
+@app.post("/login/2fa", response_class=HTMLResponse)
+async def login_2fa_submit(request: Request, preauth_token: str = Form(...), totp_code: str = Form(...)):
+    ip = audit.get_client_ip(request)
+    wait_s = security_auth.check_login_rate_limit(ip)
+    if wait_s:
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": f"Demasiados intentos. Intente en {wait_s} segundos.", "step": "credentials"},
+            status_code=429,
+        )
+
+    verified_user = security_auth.verify_preauth_token(serializer, preauth_token, ip)
+    if not verified_user:
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": "La ventana de verificación expiró. Ingrese sus credenciales nuevamente.", "step": "credentials"},
+            status_code=401,
+        )
+
+    ok_2fa, method = security_auth.verify_2fa_code(totp_code)
+    if not ok_2fa:
+        security_auth.record_login_failure(ip)
+        audit.log_event(request, "auth.login_2fa", target=verified_user, status="failed", detail="Código 2FA inválido", username=verified_user)
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": "Código 2FA o de respaldo inválido.", "step": "2fa", "preauth_token": preauth_token},
+            status_code=401,
+        )
+
+    security_auth.clear_login_failures(ip)
+    token, _sid = security_auth.issue_session_cookie_token(serializer, request, verified_user)
+    audit.log_event(
+        request,
+        "auth.login",
+        target=verified_user,
+        status="ok",
+        detail=f"Sesión iniciada con 2FA ({'código de respaldo' if method == 'backup' else 'TOTP'})",
+        username=verified_user,
+    )
     response = RedirectResponse(url="/", status_code=302)
     response.set_cookie(key=SESSION_COOKIE_NAME, value=token, httponly=True, max_age=86400 * 7, samesite="lax")
     return response
 
 
 @app.get("/logout")
-async def logout():
+async def logout(request: Request):
+    if is_authenticated(request):
+        sid = getattr(request.state, "sid", "")
+        if sid:
+            storage.revoke_session(sid)
+        audit.log_event(request, "auth.logout", target=getattr(request.state, "username", PANEL_ADMIN_USER), status="ok", detail="Cierre manual de sesión")
     response = RedirectResponse(url="/login", status_code=302)
     response.delete_cookie(SESSION_COOKIE_NAME)
     return response
@@ -97,6 +184,7 @@ async def dashboard(request: Request):
             "total_dbs": len(databases),
             "running_containers": sum(1 for c in containers if c.get("is_running")),
             "total_containers": len(containers),
+            "totp_enabled": security_auth.is_totp_enabled(),
         },
     )
 
@@ -113,6 +201,7 @@ async def go_sso(request: Request, db: str, base_url: str, uid: int = 2):
     sig = hmac.new(SOS_SSO_SECRET.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
     clean_base = base_url.strip().rstrip("/")
     params = urlencode({"db": db, "uid": uid, "ts": ts, "nonce": nonce, "sig": sig})
+    audit.log_event(request, "sso.login", target=db, status="ok", detail=f"UID={uid} • {clean_base}")
     return RedirectResponse(url=f"{clean_base}/sso/login?{params}", status_code=302)
 
 
@@ -124,8 +213,10 @@ async def restart_container(request: Request, container_name: str):
         client = docker.from_env()
         container = client.containers.get(container_name)
         container.restart(timeout=10)
+        audit.log_event(request, "container.restart", target=container_name, status="ok")
         return JSONResponse({"ok": True, "message": f"Contenedor '{container_name}' reiniciado correctamente."})
     except Exception as e:
+        audit.log_event(request, "container.restart", target=container_name, status="error", detail=str(e))
         return JSONResponse({"ok": False, "message": str(e)}, status_code=500)
 
 

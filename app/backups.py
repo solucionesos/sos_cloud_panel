@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
+import audit
 import discovery
 
 router = APIRouter()
@@ -217,6 +218,7 @@ def download_database_backup(request: Request, db_name: str, fmt: str = "zip", p
             filename = f"{db_name}_{ts}.dump"
             dump_path = os.path.join(tmp_dir, filename)
             _run_pg_dump_to_file(client, pg_container_obj, db_name, "-Fc", dump_path, pg_user, pg_password)
+            audit.log_event(request, "database.backup", target=db_name, status="ok", detail=f"Formato=dump • PG={pg_container_obj.name}")
             return FileResponse(
                 path=dump_path, media_type="application/octet-stream", filename=filename,
                 background=BackgroundTask(shutil.rmtree, tmp_dir, True),
@@ -240,6 +242,13 @@ def download_database_backup(request: Request, db_name: str, fmt: str = "zip", p
             os.remove(dump_sql_path)
         except OSError:
             pass
+        audit.log_event(
+            request,
+            "database.backup",
+            target=db_name,
+            status="ok",
+            detail=f"Formato=zip • Filestore={'sí' if filestore_dir else 'no'} • PG={pg_container_obj.name}",
+        )
         return FileResponse(
             path=zip_path, media_type="application/zip", filename=filename,
             background=BackgroundTask(shutil.rmtree, tmp_dir, True),
@@ -249,4 +258,5 @@ def download_database_backup(request: Request, db_name: str, fmt: str = "zip", p
         raise
     except Exception as e:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+        audit.log_event(request, "database.backup", target=db_name, status="error", detail=str(e))
         raise HTTPException(status_code=500, detail=f"Error generando backup: {e}")

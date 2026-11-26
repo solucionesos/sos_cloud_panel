@@ -135,6 +135,7 @@
             <button class="tab-btn active" data-tab="monitoreo" onclick="switchTab('monitoreo')">📊 Monitoreo</button>
             <button class="tab-btn" data-tab="bases" onclick="switchTab('bases')">🗄️ Bases de Datos <span class="tab-count">{{ total_dbs }}</span></button>
             <button class="tab-btn" data-tab="contenedores" onclick="switchTab('contenedores')">🐳 Contenedores <span class="tab-count">{{ running_containers }}/{{ total_containers }}</span></button>
+            <button class="tab-btn" data-tab="auditoria" onclick="switchTab('auditoria')">🛡️ Auditoría y Acceso</button>
         </nav>
     </div>
 
@@ -332,7 +333,153 @@
                 {% endfor %}
             </div>
         </section>
+
+        <section id="tab-auditoria" class="tab-panel">
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <h2 class="section-title">Control de Acceso, Sesiones y Bitácora de Auditoría</h2>
+                    <span class="pill" id="secClientIpBadge">Tu IP: --</span>
+                </div>
+                <div class="toolbar-right">
+                    <button class="btn-secondary" style="min-height:36px;padding:0.4rem 0.85rem;" onclick="refreshSecurityTab()">🔄 Actualizar</button>
+                </div>
+            </div>
+
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-head">
+                        <span class="kpi-label">🔐 Segundo Factor (2FA TOTP)</span>
+                        <span class="pill" id="totpStatusPill">--</span>
+                    </div>
+                    <div class="kpi-value" id="totpStatusText" style="font-size:1.35rem;">Cargando...</div>
+                    <div class="kpi-sub" id="totpSubText">Proteja el acceso administrativo con Google Authenticator / Authy.</div>
+                    <div style="margin-top:auto;padding-top:0.4rem;" id="totpActionWrap"></div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-head">
+                        <span class="kpi-label">💻 Sesiones Activas</span>
+                        <span class="pill" id="sessCountPill">0</span>
+                    </div>
+                    <div class="kpi-value" id="sessCountVal" style="font-size:1.35rem;">-- dispositivos</div>
+                    <div class="kpi-sub">Sesiones firmadas y revocables al instante en SQLite.</div>
+                    <div style="margin-top:auto;padding-top:0.4rem;">
+                        <button class="btn-secondary" style="width:100%;min-height:36px;" onclick="revokeOtherSessions()">🚪 Cerrar todas las demás sesiones</button>
+                    </div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-head">
+                        <span class="kpi-label">📋 Eventos (Últimas 24h)</span>
+                        <span class="pill" id="auditFailPill">0 alertas</span>
+                    </div>
+                    <div class="kpi-value" id="auditTotal24h" style="font-size:1.35rem;">-- eventos</div>
+                    <div class="kpi-sub" id="auditSub24h">Accesos SSO hoy: -- • Fallidos/Denegados: --</div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-head">
+                        <span class="kpi-label">⚙️ Motor & Persistencia</span>
+                        <span class="pill pill-running" id="schedStatusPill">SQLite WAL</span>
+                    </div>
+                    <div class="kpi-value" id="schedStateText" style="font-size:1.35rem;">APScheduler</div>
+                    <div class="kpi-sub" id="schedSubText">Verificando tareas programadas...</div>
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(420px, 1fr));gap:1.1rem;margin-bottom:1.4rem;">
+                <div class="proc-panel">
+                    <div class="proc-toolbar">
+                        <strong style="color:var(--sos-secondary);font-size:0.92rem;">💻 Sesiones Administrativas Activas</strong>
+                    </div>
+                    <div class="table-scroll" style="max-height:270px;">
+                        <table class="proc-table">
+                            <thead>
+                                <tr>
+                                    <th>Dispositivo</th>
+                                    <th>IP</th>
+                                    <th>Última Actividad</th>
+                                    <th>Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sessionsTbody">
+                                <tr><td colspan="4" style="text-align:center;padding:1.2rem;color:var(--sos-muted);">Cargando sesiones...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="proc-panel">
+                    <div class="proc-toolbar">
+                        <strong style="color:var(--sos-secondary);font-size:0.92rem;">🛡️ Lista Blanca de IPs de Confianza</strong>
+                        <button class="btn-chip" onclick="addMyCurrentIp()">+ Agregar mi IP actual</button>
+                    </div>
+                    <div style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border-color);display:flex;flex-wrap:wrap;gap:0.5rem;">
+                        <input type="text" id="trustedIpInput" class="search-input" style="flex:1;min-width:160px;padding:0.45rem 0.75rem;" placeholder="IP o CIDR (ej. 190.24.10.5)">
+                        <input type="text" id="trustedNoteInput" class="search-input" style="flex:1;min-width:150px;padding:0.45rem 0.75rem;" placeholder="Nota (ej. Oficina)">
+                        <button class="btn-sso" style="min-height:36px;padding:0.45rem 0.9rem;" onclick="submitTrustedIp()">Guardar IP</button>
+                    </div>
+                    <div class="table-scroll" style="max-height:205px;">
+                        <table class="proc-table">
+                            <thead>
+                                <tr><th>IP / Rango</th><th>Nota</th><th>Fecha</th><th></th></tr>
+                            </thead>
+                            <tbody id="trustedIpsTbody">
+                                <tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--sos-muted);">Sin IPs registradas.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="proc-panel">
+                <div class="proc-toolbar">
+                    <div class="toolbar-left">
+                        <strong style="color:var(--sos-secondary);font-size:0.95rem;">📜 Bitácora de Auditoría</strong>
+                        <input type="text" id="auditSearchInput" class="search-input" style="width:270px;padding:0.42rem 0.8rem;" placeholder="Buscar IP, acción, BD, contenedor..." oninput="debouncedFetchAudit()">
+                        <select id="auditStatusFilter" style="padding:0.42rem 0.7rem;border-radius:8px;border:1.5px solid var(--border-color);font-size:0.8rem;background:#fff;" onchange="fetchAuditLogs()">
+                            <option value="">Todos los estados</option>
+                            <option value="ok">Exitosos (ok)</option>
+                            <option value="failed">Fallidos (failed)</option>
+                            <option value="denied">Denegados (denied)</option>
+                            <option value="error">Errores (error)</option>
+                        </select>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn-secondary" style="min-height:34px;padding:0.35rem 0.8rem;" onclick="exportAuditCsv()">📥 Exportar CSV</button>
+                    </div>
+                </div>
+                <div class="table-scroll" style="max-height:460px;">
+                    <table class="proc-table">
+                        <thead>
+                            <tr>
+                                <th>Fecha / Hora</th>
+                                <th>Usuario</th>
+                                <th>IP Origen</th>
+                                <th>Acción</th>
+                                <th>Objetivo</th>
+                                <th>Estado</th>
+                                <th>Detalle</th>
+                            </tr>
+                        </thead>
+                        <tbody id="auditTbody">
+                            <tr><td colspan="7" style="text-align:center;padding:1.4rem;color:var(--sos-muted);">Cargando registros de auditoría...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
     </main>
+
+    <div class="modal-backdrop" id="twoFaModal">
+        <div class="modal-box" style="background:#fff;color:#2e1f14;max-width:480px;">
+            <div class="modal-header" style="background:#51344D;color:#fff;">
+                <strong id="twoFaModalTitle">Configurar Verificación en 2 Pasos (2FA)</strong>
+                <button class="btn-close" style="min-height:32px;padding:0.3rem 0.75rem;" onclick="closeTwoFaModal()">✕</button>
+            </div>
+            <div id="twoFaModalBody" style="padding:1.3rem;display:flex;flex-direction:column;gap:0.85rem;font-family:'Poppins',sans-serif;font-size:0.86rem;"></div>
+        </div>
+    </div>
 
     <div class="modal-backdrop" id="logsModal">
         <div class="modal-box">
@@ -356,8 +503,9 @@
             currentTab = tabName;
             localStorage.setItem('sos_active_tab', tabName);
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabName));
-            document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === 'tab-' + tabName));
+            document.querySelectorAll('.tab-panel').forEach(panel => panel.id === 'tab-' + tabName ? panel.classList.add('active') : panel.classList.remove('active'));
             if (tabName === 'monitoreo') fetchMonitoring();
+            if (tabName === 'auditoria') refreshSecurityTab();
         }
         function toggleFold(itemEl) { itemEl.classList.toggle('open'); }
         function toggleAllFold(listSelector, expand) {
@@ -544,6 +692,304 @@
                     <td class="cmd-cell" title="${escHtml(p.cmdline)}">${escHtml(p.cmdline)}</td>
                 </tr>`).join('');
         }
+        let detectedClientIp = '';
+        let auditDebounceTimer = null;
+
+        function fmtTs(ts) {
+            if (!ts) return '--';
+            return new Date(ts * 1000).toLocaleString();
+        }
+
+        function refreshSecurityTab() {
+            fetchSecurityOverview();
+            fetchAuditLogs();
+        }
+
+        function debouncedFetchAudit() {
+            clearTimeout(auditDebounceTimer);
+            auditDebounceTimer = setTimeout(fetchAuditLogs, 280);
+        }
+
+        async function fetchSecurityOverview() {
+            try {
+                const res = await fetch('/api/security/overview');
+                if (!res.ok) return;
+                const d = await res.json();
+                detectedClientIp = d.client_ip || '';
+                document.getElementById('secClientIpBadge').innerText = `Tu IP: ${detectedClientIp}`;
+
+                const totpPill = document.getElementById('totpStatusPill');
+                const totpText = document.getElementById('totpStatusText');
+                const totpSub = document.getElementById('totpSubText');
+                const totpAct = document.getElementById('totpActionWrap');
+                if (d.totp_enabled) {
+                    totpPill.className = 'pill pill-running';
+                    totpPill.innerText = 'ACTIVO';
+                    totpText.innerText = 'Protegido con TOTP';
+                    totpSub.innerText = `Códigos de respaldo disponibles: ${d.backup_codes_remaining}`;
+                    totpAct.innerHTML = `<button class="btn-secondary" style="width:100%;min-height:36px;color:#b91c1c;" onclick="openDisable2faModal()">Desactivar 2FA</button>`;
+                } else {
+                    totpPill.className = 'pill pill-stopped';
+                    totpPill.innerText = 'INACTIVO';
+                    totpText.innerText = 'Solo Clave Maestra';
+                    totpSub.innerText = 'Active 2FA para exigir código temporal al iniciar sesión.';
+                    totpAct.innerHTML = `<button class="btn-sso" style="width:100%;min-height:36px;" onclick="openSetup2faModal()">🔐 Configurar 2FA (QR)</button>`;
+                }
+
+                const sessions = d.active_sessions || [];
+                document.getElementById('sessCountPill').innerText = String(sessions.length);
+                document.getElementById('sessCountVal').innerText = `${sessions.length} ${sessions.length === 1 ? 'sesión activa' : 'sesiones activas'}`;
+                const sTbody = document.getElementById('sessionsTbody');
+                if (!sessions.length) {
+                    sTbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--sos-muted);">Sin sesiones activas.</td></tr>';
+                } else {
+                    sTbody.innerHTML = sessions.map(s => `
+                        <tr>
+                            <td title="${escHtml(s.user_agent)}">
+                                <strong>${escHtml(s.device)}</strong>
+                                ${s.is_current ? '<span class="pill pill-running" style="margin-left:4px;font-size:0.68rem;">Actual</span>' : ''}
+                            </td>
+                            <td><code>${escHtml(s.ip)}</code></td>
+                            <td style="font-size:0.75rem;">${fmtTs(s.last_seen)}</td>
+                            <td>
+                                ${s.is_current
+                                    ? '<span style="font-size:0.74rem;color:var(--sos-muted);">En uso</span>'
+                                    : `<button class="btn-secondary" style="min-height:28px;padding:0.2rem 0.6rem;font-size:0.74rem;color:#b91c1c;" onclick="revokeSession('${escHtml(s.session_id)}')">Revocar</button>`}
+                            </td>
+                        </tr>`).join('');
+                }
+
+                const sum = d.audit_summary || {};
+                document.getElementById('auditTotal24h').innerText = `${sum.events_24h ?? 0} eventos`;
+                document.getElementById('auditSub24h').innerText = `Accesos SSO 24h: ${sum.sso_24h ?? 0} • Fallidos/Denegados: ${sum.failed_24h ?? 0}`;
+                const failPill = document.getElementById('auditFailPill');
+                failPill.innerText = `${sum.failed_24h ?? 0} alertas`;
+                failPill.className = (sum.failed_24h > 0) ? 'pill pill-stopped' : 'pill pill-running';
+
+                const sch = d.scheduler || {};
+                document.getElementById('schedStateText').innerText = sch.running ? `Activo (${sch.jobs_count} tarea${sch.jobs_count === 1 ? '' : 's'})` : 'Detenido';
+                document.getElementById('schedStatusPill').className = sch.running ? 'pill pill-running' : 'pill pill-stopped';
+                document.getElementById('schedSubText').innerText = `SQLite WAL activo • Último mantenimiento: ${sch.last_housekeeping_ts ? fmtTs(sch.last_housekeeping_ts) : 'Reciente'}`;
+
+                const tips = d.trusted_ips || [];
+                const tTbody = document.getElementById('trustedIpsTbody');
+                if (!tips.length) {
+                    tTbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--sos-muted);">Sin IPs de confianza registradas.</td></tr>';
+                } else {
+                    tTbody.innerHTML = tips.map(t => `
+                        <tr>
+                            <td><strong><code>${escHtml(t.ip)}</code></strong></td>
+                            <td>${escHtml(t.note || '-')}</td>
+                            <td style="font-size:0.74rem;">${fmtTs(t.created_at)}</td>
+                            <td><button class="btn-secondary" style="min-height:26px;padding:0.15rem 0.55rem;font-size:0.73rem;color:#b91c1c;" onclick="removeTrustedIp('${escHtml(t.ip)}')">✕</button></td>
+                        </tr>`).join('');
+                }
+            } catch (e) {}
+        }
+
+        async function fetchAuditLogs() {
+            try {
+                const q = document.getElementById('auditSearchInput').value.trim();
+                const st = document.getElementById('auditStatusFilter').value;
+                const res = await fetch(`/api/security/audit-logs?limit=150&q=${encodeURIComponent(q)}&status=${encodeURIComponent(st)}`);
+                if (!res.ok) return;
+                const d = await res.json();
+                const logs = d.logs || [];
+                const tbody = document.getElementById('auditTbody');
+                if (!logs.length) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:1.3rem;color:var(--sos-muted);">No hay eventos de auditoría que coincidan.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = logs.map(r => {
+                    const stClass = r.status === 'ok' ? 'pill-running' : 'pill-stopped';
+                    return `
+                        <tr>
+                            <td style="white-space:nowrap;font-size:0.75rem;">${fmtTs(r.ts)}</td>
+                            <td><strong>${escHtml(r.username)}</strong></td>
+                            <td><code>${escHtml(r.ip)}</code></td>
+                            <td><span class="pill pill-version">${escHtml(r.action)}</span></td>
+                            <td><strong>${escHtml(r.target || '-')}</strong></td>
+                            <td><span class="pill ${stClass}">${escHtml(r.status)}</span></td>
+                            <td style="font-size:0.77rem;color:#4e4640;">${escHtml(r.detail || '')}</td>
+                        </tr>`;
+                }).join('');
+            } catch (e) {}
+        }
+
+        function exportAuditCsv() {
+            const q = document.getElementById('auditSearchInput').value.trim();
+            const st = document.getElementById('auditStatusFilter').value;
+            window.open(`/api/security/audit-logs?export=csv&q=${encodeURIComponent(q)}&status=${encodeURIComponent(st)}`, '_blank');
+        }
+
+        async function revokeSession(sessionId) {
+            if (!confirm('¿Cerrar inmediatamente esta sesión remota?')) return;
+            const res = await fetch('/api/security/sessions/revoke', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({session_id: sessionId})
+            });
+            const d = await res.json();
+            if (!res.ok) alert(d.message || 'Error revocando sesión');
+            refreshSecurityTab();
+        }
+
+        async function revokeOtherSessions() {
+            if (!confirm('¿Cerrar todas las sesiones abiertas excepto la actual?')) return;
+            const res = await fetch('/api/security/sessions/revoke-others', {method: 'POST'});
+            const d = await res.json();
+            alert(d.message || 'Sesiones actualizadas.');
+            refreshSecurityTab();
+        }
+
+        function addMyCurrentIp() {
+            if (detectedClientIp && detectedClientIp !== 'unknown') {
+                document.getElementById('trustedIpInput').value = detectedClientIp;
+                document.getElementById('trustedNoteInput').value = 'Mi conexión administrativa';
+            }
+        }
+
+        async function submitTrustedIp() {
+            const ip = document.getElementById('trustedIpInput').value.trim();
+            const note = document.getElementById('trustedNoteInput').value.trim();
+            if (!ip) return;
+            const res = await fetch('/api/security/trusted-ips', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ip, note})
+            });
+            const d = await res.json();
+            if (!res.ok || !d.ok) {
+                alert(d.message || 'IP inválida');
+                return;
+            }
+            document.getElementById('trustedIpInput').value = '';
+            document.getElementById('trustedNoteInput').value = '';
+            refreshSecurityTab();
+        }
+
+        async function removeTrustedIp(ip) {
+            if (!confirm(`¿Quitar '${ip}' de la lista blanca?`)) return;
+            await fetch('/api/security/trusted-ips', {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ip})
+            });
+            refreshSecurityTab();
+        }
+
+        function closeTwoFaModal() {
+            document.getElementById('twoFaModal').classList.remove('active');
+        }
+
+        async function openSetup2faModal() {
+            document.getElementById('twoFaModalTitle').innerText = 'Configurar 2FA (Google Authenticator / Authy)';
+            const body = document.getElementById('twoFaModalBody');
+            body.innerHTML = '<div>Generando llave segura y código QR...</div>';
+            document.getElementById('twoFaModal').classList.add('active');
+
+            const res = await fetch('/api/security/2fa/setup', {method: 'POST'});
+            const d = await res.json();
+            if (!res.ok || !d.ok) {
+                body.innerHTML = '<div style="color:#9b1c1c;">No se pudo iniciar la configuración 2FA.</div>';
+                return;
+            }
+            body.innerHTML = `
+                <div style="font-size:0.83rem;color:#4e4640;">1. Escanee este código QR desde su app autenticadora o ingrese la clave manual:</div>
+                <div style="display:flex;justify-content:center;padding:0.6rem;background:#faf8f6;border-radius:12px;border:1px solid #e4ded9;">${d.qr_svg}</div>
+                <div style="text-align:center;font-size:0.8rem;background:#f5f2f0;padding:0.45rem;border-radius:8px;">Clave manual: <strong style="letter-spacing:0.08em;">${escHtml(d.secret)}</strong></div>
+                <div class="field-group">
+                    <label>2. Código de 6 dígitos generado por su teléfono:</label>
+                    <input type="text" id="setup2faCode" placeholder="000000" autocomplete="off" style="text-align:center;font-weight:700;letter-spacing:0.15em;">
+                </div>
+                <div class="field-group">
+                    <label>3. Clave maestra actual del panel:</label>
+                    <input type="password" id="setup2faPass" placeholder="••••••••••••" autocomplete="off">
+                </div>
+                <div id="setup2faErr" style="display:none;color:#9b1c1c;background:#fde8e8;padding:0.55rem 0.75rem;border-radius:8px;font-size:0.8rem;"></div>
+                <div style="display:flex;justify-content:flex-end;gap:0.6rem;">
+                    <button class="btn-secondary" onclick="closeTwoFaModal()">Cancelar</button>
+                    <button class="btn-sso" onclick="confirmEnable2fa(this)">Activar 2FA</button>
+                </div>`;
+        }
+
+        async function confirmEnable2fa(btn) {
+            const code = document.getElementById('setup2faCode').value.trim();
+            const admin_password = document.getElementById('setup2faPass').value;
+            const errEl = document.getElementById('setup2faErr');
+            errEl.style.display = 'none';
+            btn.disabled = true;
+            try {
+                const res = await fetch('/api/security/2fa/enable', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({code, admin_password})
+                });
+                const d = await res.json();
+                if (!res.ok || !d.ok) {
+                    errEl.innerText = d.message || d.detail || 'No se pudo activar 2FA.';
+                    errEl.style.display = 'block';
+                    return;
+                }
+                const codesText = (d.backup_codes || []).join('\n');
+                document.getElementById('twoFaModalBody').innerHTML = `
+                    <div style="background:#ecfdf5;color:#065f46;padding:0.75rem;border-radius:8px;font-weight:600;">✅ ¡2FA activado! Guarde estos 6 códigos de respaldo de un solo uso en un lugar seguro (no se volverán a mostrar):</div>
+                    <pre style="background:#1e1e24;color:#f9fafb;padding:0.9rem;border-radius:10px;text-align:center;font-size:0.95rem;letter-spacing:0.1em;line-height:1.6;">${escHtml(codesText)}</pre>
+                    <div style="display:flex;justify-content:flex-end;gap:0.6rem;">
+                        <button class="btn-secondary" onclick="navigator.clipboard.writeText(\`${codesText}\`);this.innerText='✓ Copiados'">📋 Copiar códigos</button>
+                        <button class="btn-sso" onclick="closeTwoFaModal();refreshSecurityTab();">Entendido</button>
+                    </div>`;
+                refreshSecurityTab();
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function openDisable2faModal() {
+            document.getElementById('twoFaModalTitle').innerText = 'Desactivar Verificación en 2 Pasos (2FA)';
+            document.getElementById('twoFaModalBody').innerHTML = `
+                <div style="font-size:0.84rem;color:#4e4640;">Para desactivar 2FA confirme la clave maestra del panel y un código 2FA vigente (o de respaldo):</div>
+                <div class="field-group">
+                    <label>Clave maestra del panel:</label>
+                    <input type="password" id="dis2faPass" autocomplete="off">
+                </div>
+                <div class="field-group">
+                    <label>Código 2FA o código de respaldo:</label>
+                    <input type="text" id="dis2faCode" placeholder="000000" autocomplete="off">
+                </div>
+                <div id="dis2faErr" style="display:none;color:#9b1c1c;background:#fde8e8;padding:0.55rem 0.75rem;border-radius:8px;font-size:0.8rem;"></div>
+                <div style="display:flex;justify-content:flex-end;gap:0.6rem;">
+                    <button class="btn-secondary" onclick="closeTwoFaModal()">Cancelar</button>
+                    <button class="btn-close" style="background:#b91c1c;" onclick="confirmDisable2fa(this)">Desactivar 2FA</button>
+                </div>`;
+            document.getElementById('twoFaModal').classList.add('active');
+        }
+
+        async function confirmDisable2fa(btn) {
+            const admin_password = document.getElementById('dis2faPass').value;
+            const code = document.getElementById('dis2faCode').value.trim();
+            const errEl = document.getElementById('dis2faErr');
+            errEl.style.display = 'none';
+            btn.disabled = true;
+            try {
+                const res = await fetch('/api/security/2fa/disable', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({admin_password, code})
+                });
+                const d = await res.json();
+                if (!res.ok || !d.ok) {
+                    errEl.innerText = d.message || d.detail || 'Error al desactivar 2FA.';
+                    errEl.style.display = 'block';
+                    return;
+                }
+                closeTwoFaModal();
+                refreshSecurityTab();
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             filterContainers();
             switchTab(currentTab);
