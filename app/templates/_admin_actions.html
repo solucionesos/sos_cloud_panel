@@ -3,7 +3,7 @@
         <div class="modal-header" style="background:#51344D;color:#fff;">
             <strong id="actionTitle">Confirmar acción</strong>
         </div>
-        <div style="padding:1.3rem;display:flex;flex-direction:column;gap:0.8rem;">
+        <form onsubmit="event.preventDefault();return false;" style="padding:1.3rem;display:flex;flex-direction:column;gap:0.8rem;">
             <div id="actionDesc" style="font-size:0.88rem;line-height:1.45;"></div>
             <div id="actionNameWrap" style="display:none;flex-direction:column;gap:0.3rem;">
                 <label style="font-size:0.78rem;font-weight:600;">Escriba el nombre exacto para confirmar:</label>
@@ -12,7 +12,7 @@
             </div>
             <div style="display:flex;flex-direction:column;gap:0.3rem;">
                 <label style="font-size:0.78rem;font-weight:600;">Clave maestra del panel (panel admin password):</label>
-                <input type="password" id="actionPassword" autocomplete="off"
+                <input type="password" id="actionPassword" autocomplete="current-password"
                        style="padding:0.6rem;border:1px solid #d8d0c9;border-radius:8px;font-size:0.9rem;">
             </div>
             <div id="actionError" style="color:#9b1c1c;background:#fde8e8;padding:0.55rem 0.75rem;border-radius:8px;font-size:0.82rem;display:none;"></div>
@@ -20,7 +20,7 @@
                 <button type="button" class="btn-secondary" onclick="closeActionModal()">Cancelar</button>
                 <button type="button" class="btn-close" id="actionConfirmBtn" style="background:#b91c1c;" onclick="submitAction()">Confirmar</button>
             </div>
-        </div>
+        </form>
     </div>
 </div>
 

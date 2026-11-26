@@ -56,61 +56,67 @@ async def execute_fix_action(request: Request):
     if action_id != "dns_assistant":
         _verify_master_key(request, data.get("admin_password", ""), f"fix.{action_id}")
 
-    if action_id == "nginx_hardening":
-        ok, msg = remediation.execute_nginx_hardening(
-            domain=str(params.get("domain") or ""),
-            also_odoo_proxy=bool(params.get("also_odoo_proxy")),
-        )
-    elif action_id == "odoo_disable_list_db":
-        ok, msg = remediation.execute_odoo_disable_list_db(
-            container_name=str(params.get("container_name") or ""),
-            domain=str(params.get("domain") or ""),
-        )
-    elif action_id == "ssl_renew_cert":
-        ok, msg = remediation.execute_ssl_renew_cert(
-            cert_name=str(params.get("cert_name") or ""),
-            domain=str(params.get("domain") or ""),
-        )
-    elif action_id == "ssl_issue_http01":
-        ok, msg = remediation.execute_ssl_issue_http01(domain=str(params.get("domain") or ""))
-    elif action_id == "https_redirect":
-        ok, msg = remediation.execute_https_redirect(domain=str(params.get("domain") or ""))
-    elif action_id == "ssl_wildcard_start":
-        res = remediation.start_wildcard_dns_challenge(base_domain=str(params.get("base_domain") or ""))
-        audit.log_event(request, "fix.ssl_wildcard_start", target=str(params.get("base_domain") or ""), status="ok" if res.get("ok") else "error", detail=res.get("message", ""))
-        return JSONResponse(res, status_code=200 if res.get("ok") else 400)
-    elif action_id == "ssl_wildcard_complete":
-        res = remediation.complete_wildcard_dns_challenge(
-            base_domain=str(params.get("base_domain") or ""),
-            force=bool(params.get("force")),
-        )
-        if res.get("completed"):
-            audit.log_event(request, "fix.ssl_wildcard_complete", target=str(params.get("base_domain") or ""), status="ok", detail=res.get("message", ""))
-        return JSONResponse(res, status_code=200 if (res.get("ok") or res.get("needs_wait")) else 400)
-    elif action_id == "uptime_restart_container":
-        ok, msg = remediation.execute_uptime_restart_container(
-            container_name=str(params.get("container_name") or ""),
-            domain=str(params.get("domain") or ""),
-        )
-    elif action_id == "ignore_domain":
-        ok, msg = remediation.execute_ignore_inactive_domain(domain=str(params.get("domain") or ""))
-    elif action_id == "restore_domain":
-        ok, msg = remediation.execute_restore_ignored_domain(domain=str(params.get("domain") or ""))
-    elif action_id == "disk_cleanup":
-        ok, msg = remediation.execute_disk_cleanup()
-    elif action_id == "dns_assistant":
-        root_dom = str(params.get("root_domain") or "")
-        srv_ip = str(params.get("server_ip") or "")
-        return JSONResponse({
-            "ok": True,
-            "dns_records": [
-                {"type": "TXT", "host": root_dom, "value": f"v=spf1 a mx ip4:{srv_ip} ~all"},
-                {"type": "TXT", "host": f"_dmarc.{root_dom}", "value": f"v=DMARC1; p=quarantine; rua=mailto:admin@{root_dom}; pct=100"},
-            ],
-            "message": f"Agregue estos dos registros TXT en el panel DNS de {root_dom}:",
-        })
-    else:
-        return JSONResponse({"ok": False, "message": f"Acción '{action_id}' no reconocida."}, status_code=400)
+    try:
+        if action_id == "nginx_hardening":
+            ok, msg = remediation.execute_nginx_hardening(
+                domain=str(params.get("domain") or ""),
+                also_odoo_proxy=bool(params.get("also_odoo_proxy")),
+            )
+        elif action_id == "odoo_disable_list_db":
+            ok, msg = remediation.execute_odoo_disable_list_db(
+                container_name=str(params.get("container_name") or ""),
+                domain=str(params.get("domain") or ""),
+            )
+        elif action_id == "ssl_renew_cert":
+            ok, msg = remediation.execute_ssl_renew_cert(
+                cert_name=str(params.get("cert_name") or ""),
+                domain=str(params.get("domain") or ""),
+            )
+        elif action_id == "ssl_issue_http01":
+            ok, msg = remediation.execute_ssl_issue_http01(domain=str(params.get("domain") or ""))
+        elif action_id == "https_redirect":
+            ok, msg = remediation.execute_https_redirect(domain=str(params.get("domain") or ""))
+        elif action_id == "ssl_wildcard_start":
+            res = remediation.start_wildcard_dns_challenge(base_domain=str(params.get("base_domain") or ""))
+            audit.log_event(request, "fix.ssl_wildcard_start", target=str(params.get("base_domain") or ""), status="ok" if res.get("ok") else "error", detail=res.get("message", ""))
+            return JSONResponse(res, status_code=200 if res.get("ok") else 400)
+        elif action_id == "ssl_wildcard_complete":
+            res = remediation.complete_wildcard_dns_challenge(
+                base_domain=str(params.get("base_domain") or ""),
+                force=bool(params.get("force")),
+            )
+            if res.get("completed"):
+                audit.log_event(request, "fix.ssl_wildcard_complete", target=str(params.get("base_domain") or ""), status="ok", detail=res.get("message", ""))
+            return JSONResponse(res, status_code=200 if (res.get("ok") or res.get("needs_wait")) else 400)
+        elif action_id == "uptime_restart_container":
+            ok, msg = remediation.execute_uptime_restart_container(
+                container_name=str(params.get("container_name") or ""),
+                domain=str(params.get("domain") or ""),
+            )
+        elif action_id == "ignore_domain":
+            ok, msg = remediation.execute_ignore_inactive_domain(domain=str(params.get("domain") or ""))
+        elif action_id == "restore_domain":
+            ok, msg = remediation.execute_restore_ignored_domain(domain=str(params.get("domain") or ""))
+        elif action_id == "disk_cleanup":
+            ok, msg = remediation.execute_disk_cleanup()
+        elif action_id == "dns_assistant":
+            root_dom = str(params.get("root_domain") or "")
+            srv_ip = str(params.get("server_ip") or "")
+            return JSONResponse({
+                "ok": True,
+                "dns_records": [
+                    {"type": "TXT", "host": root_dom, "value": f"v=spf1 a mx ip4:{srv_ip} ~all"},
+                    {"type": "TXT", "host": f"_dmarc.{root_dom}", "value": f"v=DMARC1; p=quarantine; rua=mailto:admin@{root_dom}; pct=100"},
+                ],
+                "message": f"Agregue estos dos registros TXT en el panel DNS de {root_dom}:",
+            })
+        else:
+            return JSONResponse({"ok": False, "message": f"Acción '{action_id}' no reconocida."}, status_code=400)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        audit.log_event(request, f"fix.{action_id}", target="error", status="error", detail=str(exc))
+        return JSONResponse({"ok": False, "message": f"Error interno ejecutando acción: {exc}"}, status_code=500)
 
     target_str = str(params.get("domain") or params.get("container_name") or params.get("cert_name") or "host")
     audit.log_event(request, f"fix.{action_id}", target=target_str, status="ok" if ok else "error", detail=msg)

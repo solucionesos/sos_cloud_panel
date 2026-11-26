@@ -498,8 +498,12 @@ def start_wildcard_dns_challenge(base_domain: str) -> Dict[str, Any]:
     if not clean_base or "." not in clean_base:
         return {"ok": False, "message": "Dominio base inválido."}
 
-    # Limpiar sesión previa si existiera
-    _host_run(["/bin/sh", "-c", f"rm -rf {WILDCARD_STATE_DIR} && mkdir -p {WILDCARD_STATE_DIR}"])
+    # Terminar proceso certbot previo si quedó esperando confirmación y limpiar directorio
+    _host_run([
+        "/bin/sh",
+        "-c",
+        f"if [ -f {WILDCARD_STATE_DIR}/pid ]; then kill $(cat {WILDCARD_STATE_DIR}/pid) 2>/dev/null || true; fi; rm -rf {WILDCARD_STATE_DIR} && mkdir -p {WILDCARD_STATE_DIR}",
+    ])
 
     auth_hook_script = f"""#!/bin/sh
 echo "$CERTBOT_VALIDATION" >> {WILDCARD_STATE_DIR}/tokens.txt
@@ -540,7 +544,7 @@ rm -f {WILDCARD_STATE_DIR}/tokens.txt
         time.sleep(0.5)
         if os.path.isfile(tokens_file):
             with open(tokens_file, "r", encoding="utf-8") as f:
-                vals = [ln.strip() for ln in f.splitlines() if ln.strip()]
+                vals = [ln.strip() for ln in f.read().splitlines() if ln.strip()]
             # Con -d *.dom -d dom, Certbot ejecuta el hook para el 1er dominio y espera;
             # si ambos comparten o requieren 2 tokens secuenciales, capturamos el actual
             if vals:
@@ -585,9 +589,10 @@ def complete_wildcard_dns_challenge(base_domain: str, force: bool = False) -> Di
     log_file = f"/hostfs{WILDCARD_STATE_DIR}/certbot.log"
     txt_fqdn = f"_acme-challenge.{clean_base}"
 
+    vals: List[str] = []
     if os.path.isfile(tokens_file):
         with open(tokens_file, "r", encoding="utf-8") as f:
-            vals = [ln.strip() for ln in f.splitlines() if ln.strip()]
+            vals = [ln.strip() for ln in f.read().splitlines() if ln.strip()]
         if vals and not force:
             if not _check_txt_propagated(txt_fqdn, vals[-1]):
                 return {
@@ -609,7 +614,7 @@ def complete_wildcard_dns_challenge(base_domain: str, force: bool = False) -> Di
         time.sleep(1.0)
         if os.path.isfile(tokens_file):
             with open(tokens_file, "r", encoding="utf-8") as f:
-                now_vals = [ln.strip() for ln in f.splitlines() if ln.strip()]
+                now_vals = [ln.strip() for ln in f.read().splitlines() if ln.strip()]
             if len(now_vals) > count_before:
                 return {
                     "ok": True,

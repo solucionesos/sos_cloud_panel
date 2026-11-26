@@ -897,9 +897,9 @@
         <div class="modal-box" style="background:#fff;color:#2e1f14;max-width:520px;">
             <div class="modal-header" style="background:#51344D;color:#fff;">
                 <strong>⚙️ Reglas y Umbrales del Guardián Activo</strong>
-                <button class="btn-close" style="min-height:32px;padding:0.3rem 0.75rem;" onclick="closeGuardPolicyModal()">✕</button>
+                <button type="button" class="btn-close" style="min-height:32px;padding:0.3rem 0.75rem;" onclick="closeGuardPolicyModal()">✕</button>
             </div>
-            <div style="padding:1.25rem;display:flex;flex-direction:column;gap:0.85rem;font-family:'Poppins',sans-serif;font-size:0.83rem;">
+            <form onsubmit="event.preventDefault();return false;" style="padding:1.25rem;display:flex;flex-direction:column;gap:0.85rem;font-family:'Poppins',sans-serif;font-size:0.83rem;">
                 <div class="fold-body-grid" style="margin-bottom:0;">
                     <div class="field-group">
                         <label>Fallos SSH máx. para bloquear:</label>
@@ -928,14 +928,14 @@
                 </div>
                 <div class="field-group">
                     <label>Clave maestra del panel:</label>
-                    <input type="password" id="gpMasterPass" placeholder="••••••••••••" autocomplete="off">
+                    <input type="password" id="gpMasterPass" placeholder="••••••••••••" autocomplete="current-password">
                 </div>
                 <div id="gpFeedback" style="display:none;padding:0.55rem 0.75rem;border-radius:8px;font-size:0.8rem;"></div>
                 <div style="display:flex;justify-content:flex-end;gap:0.6rem;">
-                    <button class="btn-secondary" onclick="closeGuardPolicyModal()">Cancelar</button>
-                    <button class="btn-sso" onclick="saveGuardPolicyUI(this)">💾 Guardar Reglas</button>
+                    <button type="button" class="btn-secondary" onclick="closeGuardPolicyModal()">Cancelar</button>
+                    <button type="button" class="btn-sso" onclick="saveGuardPolicyUI(this)">💾 Guardar Reglas</button>
                 </div>
-            </div>
+            </form>
         </div>
     </div>
 
@@ -943,9 +943,9 @@
         <div class="modal-box" style="background:#fff;color:#2e1f14;max-width:680px;">
             <div class="modal-header" style="background:#51344D;color:#fff;">
                 <strong>⚙️ Política de Respaldos, Cifrado age y Destinos (Local + rclone + S3/R2)</strong>
-                <button class="btn-close" style="min-height:32px;padding:0.3rem 0.75rem;" onclick="closeBackupPolicyModal()">✕</button>
+                <button type="button" class="btn-close" style="min-height:32px;padding:0.3rem 0.75rem;" onclick="closeBackupPolicyModal()">✕</button>
             </div>
-            <div style="padding:1.25rem;overflow-y:auto;display:flex;flex-direction:column;gap:0.9rem;font-family:'Poppins',sans-serif;font-size:0.82rem;">
+            <form onsubmit="event.preventDefault();return false;" style="padding:1.25rem;overflow-y:auto;display:flex;flex-direction:column;gap:0.9rem;font-family:'Poppins',sans-serif;font-size:0.82rem;">
 
                 <div style="border:1px solid var(--border-color);border-radius:10px;padding:0.85rem;background:#faf8f6;">
                     <label style="display:flex;align-items:center;gap:0.5rem;font-weight:700;color:var(--sos-secondary);margin-bottom:0.6rem;cursor:pointer;">
@@ -1025,22 +1025,22 @@
                         <div class="field-group"><label>Nombre del Bucket:</label><input type="text" id="bpS3Bucket" placeholder="mis-backups-odoo"></div>
                         <div class="field-group"><label>Prefijo / Carpeta:</label><input type="text" id="bpS3Prefix" value="sos_cloud_panel"></div>
                         <div class="field-group"><label>Access Key ID:</label><input type="text" id="bpS3Ak"></div>
-                        <div class="field-group"><label>Secret Access Key:</label><input type="password" id="bpS3Sk"></div>
+                        <div class="field-group"><label>Secret Access Key:</label><input type="password" id="bpS3Sk" autocomplete="new-password"></div>
                         <div class="field-group"><label>Retención S3 (días):</label><input type="number" id="bpS3Ret" min="0" max="3650" value="14"></div>
                     </div>
                 </div>
 
                 <div class="field-group">
                     <label>Clave maestra del panel (requerida para guardar cambios o generar llaves age):</label>
-                    <input type="password" id="bpMasterPass" placeholder="••••••••••••" autocomplete="off">
+                    <input type="password" id="bpMasterPass" placeholder="••••••••••••" autocomplete="current-password">
                 </div>
                 <div id="bpFeedback" style="display:none;padding:0.6rem 0.8rem;border-radius:8px;font-size:0.8rem;"></div>
 
                 <div style="display:flex;justify-content:flex-end;gap:0.6rem;">
-                    <button class="btn-secondary" onclick="closeBackupPolicyModal()">Cerrar</button>
-                    <button class="btn-sso" onclick="saveBackupPolicyUI(this)">💾 Guardar Política</button>
+                    <button type="button" class="btn-secondary" onclick="closeBackupPolicyModal()">Cerrar</button>
+                    <button type="button" class="btn-sso" onclick="saveBackupPolicyUI(this)">💾 Guardar Política</button>
                 </div>
-            </div>
+            </form>
         </div>
     </div>
 
@@ -1048,9 +1048,9 @@
         <div class="modal-box" style="background:#fff;color:#2e1f14;max-width:620px;">
             <div class="modal-header" style="background:#51344D;color:#fff;">
                 <strong id="fixModalTitle">🔧 Asistente de Reparación Automática (Fix)</strong>
-                <button class="btn-close" style="min-height:32px;padding:0.3rem 0.75rem;" onclick="closeFixModal()">✕</button>
+                <button type="button" class="btn-close" style="min-height:32px;padding:0.3rem 0.75rem;" onclick="closeFixModal()">✕</button>
             </div>
-            <div id="fixModalBody" style="padding:1.25rem;overflow-y:auto;display:flex;flex-direction:column;gap:0.85rem;font-family:'Poppins',sans-serif;font-size:0.83rem;"></div>
+            <form id="fixModalBody" onsubmit="event.preventDefault();return false;" style="padding:1.25rem;overflow-y:auto;display:flex;flex-direction:column;gap:0.85rem;font-family:'Poppins',sans-serif;font-size:0.83rem;"></form>
         </div>
     </div>
 
@@ -1058,9 +1058,9 @@
         <div class="modal-box" style="background:#fff;color:#2e1f14;max-width:600px;">
             <div class="modal-header" style="background:#51344D;color:#fff;">
                 <strong>🔔 Canales de Alerta (Telegram, Webhook/n8n, SMTP)</strong>
-                <button class="btn-close" style="min-height:32px;padding:0.3rem 0.75rem;" onclick="closeNotifyModal()">✕</button>
+                <button type="button" class="btn-close" style="min-height:32px;padding:0.3rem 0.75rem;" onclick="closeNotifyModal()">✕</button>
             </div>
-            <div style="padding:1.25rem;overflow-y:auto;display:flex;flex-direction:column;gap:0.9rem;font-family:'Poppins',sans-serif;font-size:0.83rem;">
+            <form onsubmit="event.preventDefault();return false;" style="padding:1.25rem;overflow-y:auto;display:flex;flex-direction:column;gap:0.9rem;font-family:'Poppins',sans-serif;font-size:0.83rem;">
                 <div class="fold-body-grid" style="margin-bottom:0;">
                     <div class="field-group">
                         <label>Nombre identificador de este servidor:</label>
@@ -1077,7 +1077,7 @@
                         <input type="checkbox" id="ntfTgEnabled" style="width:auto;"> Activar Telegram Bot
                     </label>
                     <div class="fold-body-grid" style="margin-bottom:0;">
-                        <div class="field-group"><label>Bot Token:</label><input type="password" id="ntfTgToken" placeholder="123456:ABC-DEF..."></div>
+                        <div class="field-group"><label>Bot Token:</label><input type="password" id="ntfTgToken" placeholder="123456:ABC-DEF..." autocomplete="new-password"></div>
                         <div class="field-group"><label>Chat ID (usuario o grupo):</label><input type="text" id="ntfTgChat" placeholder="-100123456789"></div>
                     </div>
                 </div>
@@ -1088,7 +1088,7 @@
                     </label>
                     <div class="fold-body-grid" style="margin-bottom:0;">
                         <div class="field-group"><label>URL Webhook (POST JSON):</label><input type="text" id="ntfWhUrl" placeholder="https://n8n.tudominio.com/webhook/..."></div>
-                        <div class="field-group"><label>Secreto HMAC opcional (X-SOS-Signature):</label><input type="password" id="ntfWhSecret" placeholder="Opcional"></div>
+                        <div class="field-group"><label>Secreto HMAC opcional (X-SOS-Signature):</label><input type="password" id="ntfWhSecret" placeholder="Opcional" autocomplete="new-password"></div>
                     </div>
                 </div>
 
@@ -1100,7 +1100,7 @@
                         <div class="field-group"><label>Servidor SMTP:</label><input type="text" id="ntfSmtpHost" placeholder="smtp.gmail.com"></div>
                         <div class="field-group"><label>Puerto (587 STARTTLS / 465 SSL):</label><input type="number" id="ntfSmtpPort" value="587"></div>
                         <div class="field-group"><label>Usuario SMTP:</label><input type="text" id="ntfSmtpUser"></div>
-                        <div class="field-group"><label>Contraseña SMTP:</label><input type="password" id="ntfSmtpPass"></div>
+                        <div class="field-group"><label>Contraseña SMTP:</label><input type="password" id="ntfSmtpPass" autocomplete="new-password"></div>
                         <div class="field-group"><label>Correo Remitente (From):</label><input type="text" id="ntfSmtpFrom" placeholder="alertas@tudominio.com"></div>
                         <div class="field-group"><label>Destinatario(s) (To):</label><input type="text" id="ntfSmtpTo" placeholder="admin@tudominio.com"></div>
                     </div>
@@ -1108,18 +1108,18 @@
 
                 <div class="field-group">
                     <label>Clave maestra del panel (requerida para guardar cambios):</label>
-                    <input type="password" id="ntfMasterPass" placeholder="••••••••••••" autocomplete="off">
+                    <input type="password" id="ntfMasterPass" placeholder="••••••••••••" autocomplete="current-password">
                 </div>
                 <div id="ntfFeedback" style="display:none;padding:0.6rem 0.8rem;border-radius:8px;font-size:0.8rem;"></div>
 
                 <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:0.6rem;">
-                    <button class="btn-secondary" onclick="sendTestNotification(this)">📨 Enviar mensaje de prueba</button>
+                    <button type="button" class="btn-secondary" onclick="sendTestNotification(this)">📨 Enviar mensaje de prueba</button>
                     <div style="display:flex;gap:0.6rem;">
-                        <button class="btn-secondary" onclick="closeNotifyModal()">Cerrar</button>
-                        <button class="btn-sso" onclick="saveNotifySettings(this)">💾 Guardar Configuración</button>
+                        <button type="button" class="btn-secondary" onclick="closeNotifyModal()">Cerrar</button>
+                        <button type="button" class="btn-sso" onclick="saveNotifySettings(this)">💾 Guardar Configuración</button>
                     </div>
                 </div>
-            </div>
+            </form>
         </div>
     </div>
 
@@ -1127,9 +1127,9 @@
         <div class="modal-box" style="background:#fff;color:#2e1f14;max-width:480px;">
             <div class="modal-header" style="background:#51344D;color:#fff;">
                 <strong id="twoFaModalTitle">Configurar Verificación en 2 Pasos (2FA)</strong>
-                <button class="btn-close" style="min-height:32px;padding:0.3rem 0.75rem;" onclick="closeTwoFaModal()">✕</button>
+                <button type="button" class="btn-close" style="min-height:32px;padding:0.3rem 0.75rem;" onclick="closeTwoFaModal()">✕</button>
             </div>
-            <div id="twoFaModalBody" style="padding:1.3rem;display:flex;flex-direction:column;gap:0.85rem;font-family:'Poppins',sans-serif;font-size:0.86rem;"></div>
+            <form id="twoFaModalBody" onsubmit="event.preventDefault();return false;" style="padding:1.3rem;display:flex;flex-direction:column;gap:0.85rem;font-family:'Poppins',sans-serif;font-size:0.86rem;"></form>
         </div>
     </div>
 
@@ -1564,8 +1564,8 @@
                 </div>
                 <div id="setup2faErr" style="display:none;color:#9b1c1c;background:#fde8e8;padding:0.55rem 0.75rem;border-radius:8px;font-size:0.8rem;"></div>
                 <div style="display:flex;justify-content:flex-end;gap:0.6rem;">
-                    <button class="btn-secondary" onclick="closeTwoFaModal()">Cancelar</button>
-                    <button class="btn-sso" onclick="confirmEnable2fa(this)">Activar 2FA</button>
+                    <button type="button" class="btn-secondary" onclick="closeTwoFaModal()">Cancelar</button>
+                    <button type="button" class="btn-sso" onclick="confirmEnable2fa(this)">Activar 2FA</button>
                 </div>`;
         }
 
@@ -1592,8 +1592,8 @@
                     <div style="background:#ecfdf5;color:#065f46;padding:0.75rem;border-radius:8px;font-weight:600;">✅ ¡2FA activado! Guarde estos 6 códigos de respaldo de un solo uso en un lugar seguro (no se volverán a mostrar):</div>
                     <pre style="background:#1e1e24;color:#f9fafb;padding:0.9rem;border-radius:10px;text-align:center;font-size:0.95rem;letter-spacing:0.1em;line-height:1.6;">${escHtml(codesText)}</pre>
                     <div style="display:flex;justify-content:flex-end;gap:0.6rem;">
-                        <button class="btn-secondary" onclick="navigator.clipboard.writeText(\`${codesText}\`);this.innerText='✓ Copiados'">📋 Copiar códigos</button>
-                        <button class="btn-sso" onclick="closeTwoFaModal();refreshSecurityTab();">Entendido</button>
+                        <button type="button" class="btn-secondary" onclick="navigator.clipboard.writeText(\`${codesText}\`);this.innerText='✓ Copiados'">📋 Copiar códigos</button>
+                        <button type="button" class="btn-sso" onclick="closeTwoFaModal();refreshSecurityTab();">Entendido</button>
                     </div>`;
                 refreshSecurityTab();
             } finally {
@@ -1607,7 +1607,7 @@
                 <div style="font-size:0.84rem;color:#4e4640;">Para desactivar 2FA confirme la clave maestra del panel y un código 2FA vigente (o de respaldo):</div>
                 <div class="field-group">
                     <label>Clave maestra del panel:</label>
-                    <input type="password" id="dis2faPass" autocomplete="off">
+                    <input type="password" id="dis2faPass" autocomplete="current-password">
                 </div>
                 <div class="field-group">
                     <label>Código 2FA o código de respaldo:</label>
@@ -1615,8 +1615,8 @@
                 </div>
                 <div id="dis2faErr" style="display:none;color:#9b1c1c;background:#fde8e8;padding:0.55rem 0.75rem;border-radius:8px;font-size:0.8rem;"></div>
                 <div style="display:flex;justify-content:flex-end;gap:0.6rem;">
-                    <button class="btn-secondary" onclick="closeTwoFaModal()">Cancelar</button>
-                    <button class="btn-close" style="background:#b91c1c;" onclick="confirmDisable2fa(this)">Desactivar 2FA</button>
+                    <button type="button" class="btn-secondary" onclick="closeTwoFaModal()">Cancelar</button>
+                    <button type="button" class="btn-close" style="background:#b91c1c;" onclick="confirmDisable2fa(this)">Desactivar 2FA</button>
                 </div>`;
             document.getElementById('twoFaModal').classList.add('active');
         }
@@ -2646,7 +2646,7 @@
                     <div style="background:#faf8f6;padding:0.9rem;border-radius:10px;border:1px solid var(--border-color);">
                         Este hallazgo requiere revisión manual en su aplicación o proveedor externo.
                     </div>
-                    <div style="display:flex;justify-content:flex-end;"><button class="btn-secondary" onclick="closeFixModal()">Cerrar</button></div>`;
+                    <div style="display:flex;justify-content:flex-end;"><button type="button" class="btn-secondary" onclick="closeFixModal()">Cerrar</button></div>`;
                 return;
             }
 
@@ -2656,7 +2656,7 @@
                 ${needsPass ? `
                 <div class="field-group">
                     <label>Clave maestra del panel (requerida para aplicar cambios en el servidor):</label>
-                    <input type="password" id="fixMasterPass" placeholder="••••••••••••" autocomplete="off">
+                    <input type="password" id="fixMasterPass" placeholder="••••••••••••" autocomplete="current-password">
                 </div>` : ''}
                 <div style="display:flex;flex-direction:column;gap:0.7rem;" id="fixActionsContainer">
                     ${currentFixActions.map((act, idx) => `
@@ -2664,7 +2664,7 @@
                             <div style="font-weight:700;color:var(--sos-dark);font-size:0.88rem;">${escHtml(act.label)}</div>
                             <div style="font-size:0.78rem;color:#4e4640;line-height:1.45;">${escHtml(act.description)}</div>
                             <div>
-                                <button class="${act.style === 'primary' ? 'btn-sso' : 'btn-secondary'}" style="min-height:35px;padding:0.4rem 0.95rem;" onclick="runSelectedFixAction(${idx}, this)">
+                                <button type="button" class="${act.style === 'primary' ? 'btn-sso' : 'btn-secondary'}" style="min-height:35px;padding:0.4rem 0.95rem;" onclick="runSelectedFixAction(${idx}, this)">
                                     ▶ Ejecutar esta solución
                                 </button>
                             </div>
@@ -2673,7 +2673,7 @@
                 </div>
                 <div id="fixFeedbackBox" style="display:none;padding:0.75rem 0.9rem;border-radius:9px;font-size:0.81rem;line-height:1.45;"></div>
                 <div style="display:flex;justify-content:flex-end;">
-                    <button class="btn-secondary" onclick="closeFixModal()">Cerrar</button>
+                    <button type="button" class="btn-secondary" onclick="closeFixModal()">Cerrar</button>
                 </div>`;
             setTimeout(() => document.getElementById('fixMasterPass')?.focus(), 50);
         }
@@ -2706,7 +2706,7 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({action_id: act.action_id, params: act.params, admin_password: pw})
                 });
-                const d = await res.json();
+                const d = await res.json().catch(() => ({ok: false, message: `Error HTTP ${res.status}`}));
                 fb.style.display = 'block';
                 fb.style.background = (res.ok && d.ok) ? '#ecfdf5' : '#fde8e8';
                 fb.style.color = (res.ok && d.ok) ? '#065f46' : '#9b1c1c';
@@ -2741,7 +2741,7 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({action_id: 'ssl_wildcard_start', params: {base_domain: baseDomain}, admin_password: pw})
                 });
-                const d = await res.json();
+                const d = await res.json().catch(() => ({ok: false, message: `Error HTTP ${res.status}`}));
                 if (!res.ok || !d.ok) {
                     fb.style.display = 'block';
                     fb.style.background = '#fde8e8'; fb.style.color = '#9b1c1c';
@@ -2766,12 +2766,12 @@
                 ${(txtValues || []).map(v => `
                     <div style="display:flex;align-items:center;gap:0.5rem;background:#1e1e24;color:#fcd34d;padding:0.6rem 0.8rem;border-radius:8px;font-family:monospace;font-size:0.82rem;margin-bottom:0.5rem;word-break:break-all;">
                         <span style="flex:1;">${escHtml(v)}</span>
-                        <button class="btn-secondary" style="min-height:28px;padding:0.2rem 0.6rem;font-size:0.73rem;" onclick="navigator.clipboard.writeText('${escHtml(v)}');this.innerText='✓ Copiado'">📋 Copiar</button>
+                        <button type="button" class="btn-secondary" style="min-height:28px;padding:0.2rem 0.6rem;font-size:0.73rem;" onclick="navigator.clipboard.writeText('${escHtml(v)}');this.innerText='✓ Copiado'">📋 Copiar</button>
                     </div>`).join('')}
                 <div id="wcStepStatus" style="font-size:0.77rem;color:#92400e;margin-bottom:0.55rem;">Cuando haya guardado el TXT en su proveedor DNS, pulse el botón para verificar propagación y emitir el certificado:</div>
                 <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-                    <button class="btn-sso" onclick="completeWildcardStepUI('${escHtml(baseDomain)}', false, this)">✅ Ya publiqué el TXT — Verificar y Renovar</button>
-                    <button class="btn-secondary" onclick="completeWildcardStepUI('${escHtml(baseDomain)}', true, this)" title="Continuar sin esperar caché DNS de Google/Cloudflare">Forzar validación directa</button>
+                    <button type="button" class="btn-sso" onclick="completeWildcardStepUI('${escHtml(baseDomain)}', false, this)">✅ Ya publiqué el TXT — Verificar y Renovar</button>
+                    <button type="button" class="btn-secondary" onclick="completeWildcardStepUI('${escHtml(baseDomain)}', true, this)" title="Continuar sin esperar caché DNS de Google/Cloudflare">Forzar validación directa</button>
                 </div>`;
         }
 
@@ -2786,7 +2786,7 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({action_id: 'ssl_wildcard_complete', params: {base_domain: baseDomain, force}, admin_password: pw})
                 });
-                const d = await res.json();
+                const d = await res.json().catch(() => ({ok: false, message: `Error HTTP ${res.status}`}));
                 if (d.needs_wait) {
                     if (stEl) { stEl.style.color = '#b91c1c'; stEl.innerText = '⏳ ' + d.message; }
                     return;
@@ -2817,22 +2817,22 @@
             if (!list.length) {
                 body.innerHTML = `
                     <div style="color:var(--sos-muted);">No hay dominios excluidos actualmente.</div>
-                    <div style="display:flex;justify-content:flex-end;"><button class="btn-secondary" onclick="closeFixModal()">Cerrar</button></div>`;
+                    <div style="display:flex;justify-content:flex-end;"><button type="button" class="btn-secondary" onclick="closeFixModal()">Cerrar</button></div>`;
                 return;
             }
             body.innerHTML = `
                 <div class="field-group">
                     <label>Clave maestra del panel (para reincorporar dominios):</label>
-                    <input type="password" id="restoreDomPass" placeholder="••••••••••••">
+                    <input type="password" id="restoreDomPass" placeholder="••••••••••••" autocomplete="current-password">
                 </div>
                 <div style="display:flex;flex-direction:column;gap:0.45rem;">
                     ${list.map(dom => `
                         <div style="display:flex;justify-content:space-between;align-items:center;padding:0.55rem 0.8rem;background:#faf8f6;border-radius:8px;border:1px solid var(--border-color);">
                             <code><strong>${escHtml(dom)}</strong></code>
-                            <button class="btn-secondary" style="min-height:28px;padding:0.2rem 0.65rem;font-size:0.75rem;color:#047857;" onclick="restoreIgnoredDomainUI('${escHtml(dom)}')">♻️ Volver a monitorear</button>
+                            <button type="button" class="btn-secondary" style="min-height:28px;padding:0.2rem 0.65rem;font-size:0.75rem;color:#047857;" onclick="restoreIgnoredDomainUI('${escHtml(dom)}')">♻️ Volver a monitorear</button>
                         </div>`).join('')}
                 </div>
-                <div style="display:flex;justify-content:flex-end;"><button class="btn-secondary" onclick="closeFixModal()">Cerrar</button></div>`;
+                <div style="display:flex;justify-content:flex-end;"><button type="button" class="btn-secondary" onclick="closeFixModal()">Cerrar</button></div>`;
         }
 
         async function restoreIgnoredDomainUI(domain) {
