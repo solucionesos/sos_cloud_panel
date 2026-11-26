@@ -3,7 +3,7 @@ import glob
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import docker
 import psycopg2
@@ -197,19 +197,95 @@ def _query_pg(
     raise RuntimeError("No se pudo conectar a la instancia PostgreSQL.")
 
 
+def _extract_nginx_blocks(content: str, keyword: str) -> List[Tuple[str, str]]:
+    """Extrae bloques '<keyword> <header> { ... }' respetando llaves anidadas."""
+    results: List[Tuple[str, str]] = []
+    pattern = re.compile(rf"(?:^|\s){keyword}\s*([^{{;]*)\{{", re.MULTILINE)
+    idx = 0
+    n = len(content)
+    while idx < n:
+        m = pattern.search(content, idx)
+        if not m:
+            break
+        header = m.group(1).strip()
+        brace_start = m.end() - 1
+        depth = 0
+        pos = brace_start
+        while pos < n:
+            ch = content[pos]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    results.append((header, content[brace_start + 1 : pos]))
+                    idx = pos + 1
+                    break
+            pos += 1
+        else:
+            break
+    return results
+
+
+def _read_nginx_file_following_hostfs(filepath: str) -> str:
+    target = filepath
+    if os.path.islink(filepath) and not os.path.exists(filepath):
+        link_dest = os.readlink(filepath)
+        if link_dest.startswith("/"):
+            candidate = os.path.join("/hostfs", link_dest.lstrip("/"))
+            if os.path.isfile(candidate):
+                target = candidate
+    if not os.path.isfile(target):
+        return ""
+    with open(target, "r", encoding="utf-8", errors="ignore") as f:
+        return f.read()
+
+
 def parse_nginx_domain_mapping() -> Dict[str, Any]:
     port_to_domains: Dict[int, List[str]] = {}
     db_to_domain: Dict[str, str] = {}
-    if not os.path.isdir(NGINX_SITES_PATH):
-        return {"port_to_domains": port_to_domains, "db_to_domain": db_to_domain}
+    all_domains: List[str] = []
 
-    for filepath in glob.glob(os.path.join(NGINX_SITES_PATH, "*")):
-        if os.path.isdir(filepath):
-            continue
+    search_dirs = []
+    for d in (NGINX_SITES_PATH, "/hostfs/etc/nginx/sites-enabled", "/hostfs/etc/nginx/conf.d"):
+        if d and d not in search_dirs and os.path.isdir(d):
+            search_dirs.append(d)
+
+    if not search_dirs:
+        return {"port_to_domains": port_to_domains, "db_to_domain": db_to_domain, "all_domains": all_domains}
+
+    seen_realpaths = set()
+    contents: List[str] = []
+    upstream_ports: Dict[str, int] = {}
+
+    for sdir in search_dirs:
+        for entry in sorted(os.listdir(sdir)):
+            filepath = os.path.join(sdir, entry)
+            real_key = os.readlink(filepath) if os.path.islink(filepath) else filepath
+            if real_key in seen_realpaths:
+                continue
+            seen_realpaths.add(real_key)
+            try:
+                text = _read_nginx_file_following_hostfs(filepath)
+                if not text:
+                    continue
+                # Ignorar líneas comentadas
+                clean_lines = [ln for ln in text.splitlines() if not ln.lstrip().startswith("#")]
+                clean_text = "\n".join(clean_lines)
+                contents.append(clean_text)
+                for up_name, up_body in _extract_nginx_blocks(clean_text, "upstream"):
+                    if up_name:
+                        m_srv = re.search(r"server\s+[^:;]+:(\d+)", up_body)
+                        if m_srv:
+                            upstream_ports[up_name.split()[0].strip()] = int(m_srv.group(1))
+            except Exception:
+                continue
+
+    for clean_text in contents:
         try:
-            with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-            server_blocks = re.findall(r"server\s*\{(.*?)(?=\nserver\s*\{|\Z)", content, re.DOTALL) or [content]
+            server_blocks = [b for hdr, b in _extract_nginx_blocks(clean_text, "server") if not hdr]
+            if not server_blocks:
+                server_blocks = [clean_text]
             for block in server_blocks:
                 server_names = re.findall(r"server_name\s+([^;]+);", block)
                 domains = []
@@ -218,20 +294,35 @@ def parse_nginx_domain_mapping() -> Dict[str, Any]:
                         d = d.strip()
                         if d and d != "_" and not d.startswith("#"):
                             domains.append(d)
-                ports = re.findall(r"proxy_pass\s+https?://[^:;]+:(\d+)", block)
-                for p_str in ports:
-                    port = int(p_str)
+                            if not d.startswith("*.") and d.lower() not in all_domains:
+                                all_domains.append(d.lower())
+
+                ports: List[int] = []
+                for p_str in re.findall(r"proxy_pass\s+https?://[^:;/\s]+:(\d+)", block):
+                    p = int(p_str)
+                    if p not in ports:
+                        ports.append(p)
+                for up_ref in re.findall(r"proxy_pass\s+https?://([A-Za-z0-9_.\-]+)\s*[;/]", block):
+                    if up_ref in upstream_ports and upstream_ports[up_ref] not in ports:
+                        ports.append(upstream_ports[up_ref])
+
+                # Ignorar puerto secundario de longpolling 8072 si hay un puerto principal HTTP en el mismo server block
+                primary_ports = [p for p in ports if p != 8072] or ports
+
+                for port in primary_ports:
                     port_to_domains.setdefault(port, [])
                     for d in domains:
                         if d not in port_to_domains[port]:
                             port_to_domains[port].append(d)
                 for d in domains:
+                    if d.startswith("*."):
+                        continue
                     sub = d.split(".")[0].lower()
                     if sub and sub not in ("www", "cloud", "panel"):
                         db_to_domain[sub] = f"https://{d}"
         except Exception:
             continue
-    return {"port_to_domains": port_to_domains, "db_to_domain": db_to_domain}
+    return {"port_to_domains": port_to_domains, "db_to_domain": db_to_domain, "all_domains": all_domains}
 
 
 def discover_odoo_containers(port_to_domains: Dict[int, List[str]]) -> List[Dict[str, Any]]:

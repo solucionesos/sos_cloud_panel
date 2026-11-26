@@ -1,5 +1,6 @@
 """Monitoreo activo de Uptime HTTP/HTTPS (1 min), certificados SSL/TLS (6 h) y umbrales de disco del servidor."""
 from concurrent.futures import ThreadPoolExecutor
+import ipaddress
 import logging
 import socket
 import ssl
@@ -24,7 +25,20 @@ def _clean_domain(raw: str) -> str:
     d = d.split(":")[0].strip(".")
     if not d or d in ("localhost", "127.0.0.1", "_") or d.startswith("*.") or "." not in d:
         return ""
+    try:
+        ipaddress.ip_address(d)
+        return ""
+    except ValueError:
+        pass
     return d
+
+
+def _resolves_in_dns(domain: str) -> bool:
+    try:
+        socket.getaddrinfo(domain, 443)
+        return True
+    except Exception:
+        return False
 
 
 def discover_monitored_targets() -> List[Dict[str, Any]]:
@@ -35,7 +49,7 @@ def discover_monitored_targets() -> List[Dict[str, Any]]:
 
     targets: Dict[str, Dict[str, Any]] = {}
 
-    # 1. Dominios configurados explícitamente en Nginx (fuente primaria real)
+    # 1. Dominios con puerto proxy_pass explícito en Nginx
     for port, doms in (nginx_map.get("port_to_domains") or {}).items():
         matched_c = next((c for c in containers if port in (c.get("host_ports") or [])), None)
         is_odoo = bool(matched_c and matched_c.get("is_odoo"))
@@ -53,9 +67,32 @@ def discover_monitored_targets() -> List[Dict[str, Any]]:
                 "is_odoo": is_odoo,
             })
 
-    # 2. Enriquecer con metadatos de bases de datos Odoo descubiertas
+    # 2. Cualquier otro server_name explícito en Nginx (ej. redirecciones o upstream sin match previo)
+    for raw_d in (nginx_map.get("all_domains") or []):
+        dom = _clean_domain(raw_d)
+        if dom and dom not in targets:
+            targets[dom] = {
+                "domain": dom,
+                "url": f"https://{dom}",
+                "container_name": "",
+                "db_name": "",
+                "company_name": "",
+                "is_odoo": False,
+            }
+
+    # Contenedor Odoo principal multi-tenant (si existe un wildcard *.dominio en puerto 8069)
+    wildcard_container = ""
+    for port, doms in (nginx_map.get("port_to_domains") or {}).items():
+        if any(str(d).startswith("*.") for d in doms):
+            mc = next((c for c in containers if port in (c.get("host_ports") or [])), None)
+            if mc:
+                wildcard_container = mc["name"]
+                break
+
+    # 3. Dominios de bases de datos Odoo (incluyendo subdominios atendidos por wildcard en Nginx)
     for db in databases:
-        if str(db.get("name", "")).startswith("Error"):
+        dbname = str(db.get("name") or "")
+        if not dbname or dbname.startswith("Error") or dbname.lower().startswith("tmp_"):
             continue
         dom = _clean_domain(db.get("base_url") or "")
         if not dom:
@@ -63,8 +100,17 @@ def discover_monitored_targets() -> List[Dict[str, Any]]:
         if dom in targets:
             targets[dom]["is_odoo"] = True
             if not targets[dom]["db_name"]:
-                targets[dom]["db_name"] = db["name"]
-                targets[dom]["company_name"] = db.get("company_name") or db["name"]
+                targets[dom]["db_name"] = dbname
+                targets[dom]["company_name"] = db.get("company_name") or dbname
+        elif _resolves_in_dns(dom):
+            targets[dom] = {
+                "domain": dom,
+                "url": f"https://{dom}",
+                "container_name": wildcard_container,
+                "db_name": dbname,
+                "company_name": db.get("company_name") or dbname,
+                "is_odoo": True,
+            }
 
     return sorted(targets.values(), key=lambda x: (not x["is_odoo"], x["domain"]))
 
