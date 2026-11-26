@@ -39,11 +39,13 @@ app = FastAPI(title="SOS Cloud Control Panel - Odoo.sh Style", lifespan=lifespan
 from danger import router as admin_actions_router  # noqa: E402
 from backups import router as backups_router  # noqa: E402
 import backup_routes  # noqa: E402
+import guard_routes  # noqa: E402
 import health_routes  # noqa: E402
 
 app.include_router(admin_actions_router)
 app.include_router(backups_router)
 app.include_router(backup_routes.router)
+app.include_router(guard_routes.router)
 app.include_router(security_auth.router)
 app.include_router(health_routes.router)
 

@@ -136,6 +136,7 @@
             <button class="tab-btn" data-tab="bases" onclick="switchTab('bases')">🗄️ Bases de Datos <span class="tab-count">{{ total_dbs }}</span></button>
             <button class="tab-btn" data-tab="contenedores" onclick="switchTab('contenedores')">🐳 Contenedores <span class="tab-count">{{ running_containers }}/{{ total_containers }}</span></button>
             <button class="tab-btn" data-tab="respaldos" onclick="switchTab('respaldos')">💾 Respaldos Automáticos</button>
+            <button class="tab-btn" data-tab="amenazas" onclick="switchTab('amenazas')">🚨 Seguridad y Amenazas</button>
             <button class="tab-btn" data-tab="salud" onclick="switchTab('salud')">🩺 Salud y Diagnóstico</button>
             <button class="tab-btn" data-tab="auditoria" onclick="switchTab('auditoria')">🛡️ Auditoría y Acceso</button>
         </nav>
@@ -660,7 +661,187 @@
                 </div>
             </div>
         </section>
+
+        <section id="tab-amenazas" class="tab-panel">
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <h2 class="section-title">Guardián Activo: Firewall, Fuerza Bruta SSH/Odoo, Honeypots e Integridad</h2>
+                </div>
+                <div class="toolbar-right">
+                    <button class="btn-chip" id="btnModeMonitor" onclick="switchGuardModeUI('monitor')">👁️ Modo Observar</button>
+                    <button class="btn-chip" id="btnModeEnforce" onclick="switchGuardModeUI('enforce')">🛡️ Modo Bloquear (Firewall)</button>
+                    <button class="btn-secondary" style="min-height:36px;color:#b91c1c;" onclick="emergencyUnblockAllUI()">🔓 Levantar Todos los Bloqueos</button>
+                    <button class="btn-secondary" style="min-height:36px;" onclick="openGuardPolicyModal()">⚙️ Reglas y Umbrales</button>
+                    <button class="btn-secondary" style="min-height:36px;padding:0.4rem 0.75rem;" onclick="fetchGuardOverview()">🔄</button>
+                </div>
+            </div>
+
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-head">
+                        <span class="kpi-label">🛡️ Estado del Guardián</span>
+                        <span class="pill" id="grdModePill">--</span>
+                    </div>
+                    <div class="kpi-value" id="grdModeVal" style="font-size:1.35rem;">--</div>
+                    <div class="kpi-sub" id="grdFwSub">Cadena iptables SOS_GUARD: --</div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-head">
+                        <span class="kpi-label">🚫 IPs en Lista Negra</span>
+                        <span class="pill" id="grdActiveBlocksPill">0 activas</span>
+                    </div>
+                    <div class="kpi-value" id="grdActiveBlocksVal">0 IPs</div>
+                    <div class="kpi-sub">Con expiración automática y exclusión de Lista Blanca.</div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-head">
+                        <span class="kpi-label">⚡ Detecciones (24h)</span>
+                        <span class="pill pill-version" id="grdEvents24Pill">0</span>
+                    </div>
+                    <div class="kpi-value" id="grdEvents24Val" style="font-size:1.35rem;">0 amenazas</div>
+                    <div class="kpi-sub" id="grdVectorsSub">SSH: 0 • Login Odoo: 0 • Honeypots: 0</div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-head">
+                        <span class="kpi-label">🔐 Integridad del Servidor</span>
+                        <span class="pill pill-running" id="grdIntegPill">OK</span>
+                    </div>
+                    <div class="kpi-value" id="grdIntegVal" style="font-size:1.35rem;">-- archivos</div>
+                    <div class="kpi-sub">Llaves SSH, crontabs, sshd_config, sudoers y passwd.</div>
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(430px, 1fr));gap:1.1rem;margin-bottom:1.4rem;">
+                <div class="proc-panel">
+                    <div class="proc-toolbar">
+                        <strong style="color:var(--sos-secondary);font-size:0.92rem;">🚫 IPs Bloqueadas / En Seguimiento</strong>
+                    </div>
+                    <div style="padding:0.8rem 1.1rem;border-bottom:1px solid var(--border-color);display:flex;flex-wrap:wrap;gap:0.45rem;">
+                        <input type="text" id="manualBlockIpInput" class="search-input" style="flex:1;min-width:140px;padding:0.42rem 0.7rem;" placeholder="IP a bloquear (ej. 203.0.113.50)">
+                        <input type="text" id="manualBlockReasonInput" class="search-input" style="flex:1;min-width:140px;padding:0.42rem 0.7rem;" placeholder="Motivo">
+                        <select id="manualBlockDurSelect" style="padding:0.42rem 0.6rem;border-radius:8px;border:1.5px solid var(--border-color);font-size:0.78rem;background:#fff;">
+                            <option value="60">1 hora</option>
+                            <option value="1440">24 horas</option>
+                            <option value="0">Permanente</option>
+                        </select>
+                        <button class="btn-sso" style="min-height:34px;padding:0.4rem 0.85rem;background:#b91c1c;" onclick="submitManualBlockUI()">Bloquear IP</button>
+                    </div>
+                    <div class="table-scroll" style="max-height:260px;">
+                        <table class="proc-table">
+                            <thead>
+                                <tr><th>IP</th><th>Motivo / Origen</th><th>Expira</th><th>Acciones</th></tr>
+                            </thead>
+                            <tbody id="blockedIpsTbody">
+                                <tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--sos-muted);">Sin IPs bloqueadas actualmente.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="proc-panel">
+                    <div class="proc-toolbar">
+                        <strong style="color:var(--sos-secondary);font-size:0.92rem;">🔐 Vigilancia de Integridad del Host (SHA-256)</strong>
+                        <div style="display:flex;gap:0.4rem;">
+                            <button class="btn-chip" onclick="runIntegrityCheckUI(this)">🔍 Verificar ahora</button>
+                            <button class="btn-chip" onclick="approveIntegrityFileUI('__ALL__')">✓ Aprobar todo</button>
+                        </div>
+                    </div>
+                    <div class="table-scroll" style="max-height:315px;">
+                        <table class="proc-table">
+                            <thead>
+                                <tr><th>Archivo Crítico</th><th>Estado</th><th>Detalle / Hash</th><th></th></tr>
+                            </thead>
+                            <tbody id="integrityTbody">
+                                <tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--sos-muted);">Cargando línea base...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="proc-panel">
+                <div class="proc-toolbar">
+                    <div class="toolbar-left">
+                        <strong style="color:var(--sos-secondary);font-size:0.95rem;">📡 Radar de Amenazas y Eventos Detectados</strong>
+                        <select id="grdVectorFilter" style="padding:0.42rem 0.7rem;border-radius:8px;border:1.5px solid var(--border-color);font-size:0.8rem;background:#fff;" onchange="fetchGuardOverview()">
+                            <option value="">Todos los vectores</option>
+                            <option value="ssh_bruteforce">Fuerza bruta SSH</option>
+                            <option value="odoo_login">Fuerza bruta Login Odoo</option>
+                            <option value="web_honeypot">Honeypots Web (Nginx)</option>
+                            <option value="host_integrity">Integridad de Archivos</option>
+                            <option value="manual">Bloqueos Manuales</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-scroll" style="max-height:380px;">
+                    <table class="proc-table">
+                        <thead>
+                            <tr>
+                                <th>Fecha / Hora</th>
+                                <th>IP Origen</th>
+                                <th>Vector</th>
+                                <th>Objetivo</th>
+                                <th>Acción</th>
+                                <th>Detalle</th>
+                            </tr>
+                        </thead>
+                        <tbody id="threatEventsTbody">
+                            <tr><td colspan="6" style="text-align:center;padding:1.3rem;color:var(--sos-muted);">Sin eventos de amenazas registrados aún.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
     </main>
+
+    <div class="modal-backdrop" id="guardPolicyModal">
+        <div class="modal-box" style="background:#fff;color:#2e1f14;max-width:520px;">
+            <div class="modal-header" style="background:#51344D;color:#fff;">
+                <strong>⚙️ Reglas y Umbrales del Guardián Activo</strong>
+                <button class="btn-close" style="min-height:32px;padding:0.3rem 0.75rem;" onclick="closeGuardPolicyModal()">✕</button>
+            </div>
+            <div style="padding:1.25rem;display:flex;flex-direction:column;gap:0.85rem;font-family:'Poppins',sans-serif;font-size:0.83rem;">
+                <div class="fold-body-grid" style="margin-bottom:0;">
+                    <div class="field-group">
+                        <label>Fallos SSH máx. para bloquear:</label>
+                        <input type="number" id="gpSshMax" min="3" max="100" value="8">
+                    </div>
+                    <div class="field-group">
+                        <label>Fallos Login Odoo máx.:</label>
+                        <input type="number" id="gpOdooMax" min="3" max="100" value="10">
+                    </div>
+                    <div class="field-group">
+                        <label>Ventana de observación (min):</label>
+                        <input type="number" id="gpWindowMin" min="1" max="120" value="10">
+                    </div>
+                    <div class="field-group">
+                        <label>Duración inicial bloqueo (min):</label>
+                        <input type="number" id="gpBlockDur" min="5" max="10080" value="60">
+                    </div>
+                </div>
+                <label style="display:flex;align-items:center;gap:0.5rem;font-weight:600;cursor:pointer;">
+                    <input type="checkbox" id="gpHoneypotEnabled" style="width:auto;" checked>
+                    Activar trampas Honeypot Web (/.env, /wp-login.php, /phpmyadmin, /.git/)
+                </label>
+                <div class="field-group">
+                    <label>Toques a rutas Honeypot para disparar bloqueo:</label>
+                    <input type="number" id="gpHoneypotHits" min="1" max="50" value="2">
+                </div>
+                <div class="field-group">
+                    <label>Clave maestra del panel:</label>
+                    <input type="password" id="gpMasterPass" placeholder="••••••••••••" autocomplete="off">
+                </div>
+                <div id="gpFeedback" style="display:none;padding:0.55rem 0.75rem;border-radius:8px;font-size:0.8rem;"></div>
+                <div style="display:flex;justify-content:flex-end;gap:0.6rem;">
+                    <button class="btn-secondary" onclick="closeGuardPolicyModal()">Cancelar</button>
+                    <button class="btn-sso" onclick="saveGuardPolicyUI(this)">💾 Guardar Reglas</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <div class="modal-backdrop" id="backupPolicyModal">
         <div class="modal-box" style="background:#fff;color:#2e1f14;max-width:680px;">
@@ -871,6 +1052,7 @@
             document.querySelectorAll('.tab-panel').forEach(panel => panel.id === 'tab-' + tabName ? panel.classList.add('active') : panel.classList.remove('active'));
             if (tabName === 'monitoreo') fetchMonitoring();
             if (tabName === 'respaldos') fetchBackupsOverview();
+            if (tabName === 'amenazas') fetchGuardOverview();
             if (tabName === 'salud') fetchHealthOverview();
             if (tabName === 'auditoria') refreshSecurityTab();
         }
@@ -1914,6 +2096,247 @@
                 fb.innerText = `${d.message || d.detail} (Nota: guarde primero la política si modificó campos).`;
             } finally {
                 btn.disabled = false; btn.innerText = orig;
+            }
+        }
+
+        let cachedGuardPolicy = null;
+
+        async function fetchGuardOverview() {
+            try {
+                const vec = document.getElementById('grdVectorFilter')?.value || '';
+                const res = await fetch(`/api/guard/overview?vector=${encodeURIComponent(vec)}`);
+                if (!res.ok) return;
+                const d = await res.json();
+                const p = d.policy || {};
+                cachedGuardPolicy = p;
+                const s = d.summary || {};
+                const fw = d.firewall || {};
+
+                const isEnforce = p.mode === 'enforce';
+                document.getElementById('btnModeMonitor').classList.toggle('active', !isEnforce);
+                document.getElementById('btnModeEnforce').classList.toggle('active', isEnforce);
+
+                const modePill = document.getElementById('grdModePill');
+                modePill.innerText = isEnforce ? 'BLOQUEANDO' : 'OBSERVANDO';
+                modePill.className = isEnforce ? 'pill pill-running' : 'pill';
+                document.getElementById('grdModeVal').innerText = isEnforce ? 'Firewall Activo' : 'Solo Registro';
+                document.getElementById('grdFwSub').innerText = fw.capable
+                    ? `iptables SOS_GUARD listo (${fw.enforced_rules_count ?? 0} reglas en kernel)`
+                    : `Aviso firewall: ${fw.detail || 'No disponible'}`;
+
+                const blocked = d.blocked_ips || [];
+                document.getElementById('grdActiveBlocksPill').innerText = `${blocked.length} activa${blocked.length === 1 ? '' : 's'}`;
+                document.getElementById('grdActiveBlocksPill').className = blocked.length > 0 ? 'pill pill-stopped' : 'pill pill-running';
+                document.getElementById('grdActiveBlocksVal').innerText = `${blocked.length} IP${blocked.length === 1 ? '' : 's'}`;
+
+                document.getElementById('grdEvents24Pill').innerText = String(s.events_24h ?? 0);
+                document.getElementById('grdEvents24Val').innerText = `${s.events_24h ?? 0} eventos`;
+                document.getElementById('grdVectorsSub').innerText = `SSH: ${s.ssh_24h ?? 0} • Login Odoo: ${s.odoo_24h ?? 0} • Honeypots: ${s.web_24h ?? 0}`;
+
+                const intAlerts = s.integrity_alerts ?? 0;
+                const intPill = document.getElementById('grdIntegPill');
+                intPill.innerText = intAlerts > 0 ? `${intAlerts} ALERTA${intAlerts === 1 ? '' : 'S'}` : 'ÍNTEGRO';
+                intPill.className = intAlerts > 0 ? 'pill pill-stopped' : 'pill pill-running';
+                document.getElementById('grdIntegVal').innerText = `${(s.integrity_total ?? 0) - intAlerts} / ${s.integrity_total ?? 0} archivos`;
+
+                // Tabla IPs Bloqueadas
+                const bTbody = document.getElementById('blockedIpsTbody');
+                if (!blocked.length) {
+                    bTbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:1.1rem;color:var(--sos-muted);">Ninguna IP en lista negra actualmente.</td></tr>';
+                } else {
+                    bTbody.innerHTML = blocked.map(b => `
+                        <tr>
+                            <td><strong><code>${escHtml(b.ip)}</code></strong></td>
+                            <td style="font-size:0.76rem;">
+                                <div><strong>${escHtml(b.reason)}</strong></div>
+                                <div style="color:var(--sos-muted);font-size:0.7rem;">Origen: ${escHtml(b.source)} • Golpes: ${b.hits}</div>
+                            </td>
+                            <td style="font-size:0.74rem;white-space:nowrap;">${b.expires_at ? fmtTs(b.expires_at) : 'Permanente'}</td>
+                            <td style="display:flex;gap:0.35rem;">
+                                <button class="btn-secondary" style="min-height:26px;padding:0.15rem 0.5rem;font-size:0.72rem;" onclick="unblockIpUI('${escHtml(b.ip)}', false)">Levantar</button>
+                                <button class="btn-secondary" style="min-height:26px;padding:0.15rem 0.5rem;font-size:0.72rem;color:#047857;" title="Desbloquear y agregar a Lista Blanca" onclick="unblockIpUI('${escHtml(b.ip)}', true)">+ Blanca</button>
+                            </td>
+                        </tr>`).join('');
+                }
+
+                // Tabla Integridad Host
+                const integ = d.integrity || [];
+                const iTbody = document.getElementById('integrityTbody');
+                if (!integ.length) {
+                    iTbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--sos-muted);">Sin archivos monitoreados.</td></tr>';
+                } else {
+                    iTbody.innerHTML = integ.map(r => {
+                        const isOk = r.status === 'ok';
+                        const badge = isOk
+                            ? '<span class="pill pill-running">OK</span>'
+                            : `<span class="pill pill-stopped">${escHtml(r.status.toUpperCase())}</span>`;
+                        const shaShort = (r.current_sha256 || r.sha256 || '').slice(0, 12);
+                        return `
+                            <tr>
+                                <td><code style="font-size:0.74rem;">${escHtml(r.filepath)}</code></td>
+                                <td>${badge}</td>
+                                <td style="font-size:0.73rem;color:#4e4640;">${escHtml(r.detail || '')} ${shaShort ? '• <code>' + escHtml(shaShort) + '…</code>' : ''}</td>
+                                <td>${isOk ? '' : `<button class="btn-secondary" style="min-height:26px;padding:0.15rem 0.55rem;font-size:0.72rem;" onclick="approveIntegrityFileUI('${escHtml(r.filepath)}')">Aprobar</button>`}</td>
+                            </tr>`;
+                    }).join('');
+                }
+
+                // Tabla Eventos
+                const evs = d.events || [];
+                const eTbody = document.getElementById('threatEventsTbody');
+                if (!evs.length) {
+                    eTbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:1.3rem;color:var(--sos-muted);">No hay amenazas registradas en este filtro.</td></tr>';
+                } else {
+                    eTbody.innerHTML = evs.map(ev => {
+                        const actBadge = ev.action_taken === 'blocked'
+                            ? '<span class="pill pill-stopped">FRENADO</span>'
+                            : (ev.action_taken === 'alerted' ? '<span class="pill pill-stopped">ALERTA</span>' : '<span class="pill">OBSERVADO</span>');
+                        return `
+                            <tr>
+                                <td style="font-size:0.75rem;white-space:nowrap;">${fmtTs(ev.ts)}</td>
+                                <td><strong><code>${escHtml(ev.ip)}</code></strong></td>
+                                <td><span class="pill pill-version">${escHtml(ev.vector)}</span></td>
+                                <td><strong>${escHtml(ev.target)}</strong></td>
+                                <td>${actBadge}</td>
+                                <td style="font-size:0.76rem;color:#4e4640;">${escHtml(ev.detail)}</td>
+                            </tr>`;
+                    }).join('');
+                }
+            } catch (e) {}
+        }
+
+        async function switchGuardModeUI(targetMode) {
+            if (cachedGuardPolicy && cachedGuardPolicy.mode === targetMode) return;
+            const desc = targetMode === 'enforce'
+                ? 'Se activará el MODO BLOQUEAR en iptables del servidor (tu IP actual se protege automáticamente en Lista Blanca). Ingrese la clave maestra:'
+                : 'Se cambiará a MODO OBSERVAR (se levantarán las reglas activas en el firewall del kernel). Ingrese la clave maestra:';
+            const pw = prompt(desc);
+            if (!pw) return;
+            const res = await fetch('/api/guard/mode', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({mode: targetMode, admin_password: pw})
+            });
+            const d = await res.json();
+            alert(d.message || d.detail || 'Error cambiando modo');
+            fetchGuardOverview();
+        }
+
+        async function submitManualBlockUI() {
+            const ip = document.getElementById('manualBlockIpInput').value.trim();
+            const reason = document.getElementById('manualBlockReasonInput').value.trim() || 'Bloqueo manual';
+            const duration_minutes = parseInt(document.getElementById('manualBlockDurSelect').value || '60', 10);
+            if (!ip) return;
+            const res = await fetch('/api/guard/block', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ip, reason, duration_minutes})
+            });
+            const d = await res.json();
+            if (!res.ok || !d.ok) {
+                alert(d.message || d.detail || 'No se pudo bloquear la IP.');
+                return;
+            }
+            document.getElementById('manualBlockIpInput').value = '';
+            document.getElementById('manualBlockReasonInput').value = '';
+            fetchGuardOverview();
+        }
+
+        async function unblockIpUI(ip, addToWhitelist) {
+            const res = await fetch('/api/guard/unblock', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ip, add_to_whitelist: addToWhitelist})
+            });
+            const d = await res.json();
+            if (!res.ok || !d.ok) alert(d.message || 'Error al desbloquear');
+            fetchGuardOverview();
+        }
+
+        async function emergencyUnblockAllUI() {
+            const pw = prompt('EMERGENCIA: Se levantarán inmediatamente TODOS los bloqueos de IP y se limpiará la cadena SOS_GUARD en iptables. Ingrese la clave maestra:');
+            if (!pw) return;
+            const res = await fetch('/api/guard/unblock-all', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({admin_password: pw})
+            });
+            const d = await res.json();
+            alert(d.message || d.detail || 'Error');
+            fetchGuardOverview();
+        }
+
+        async function runIntegrityCheckUI(btn) {
+            const orig = btn.innerText;
+            btn.disabled = true; btn.innerText = '⏳...';
+            try {
+                const res = await fetch('/api/guard/integrity/check', {method: 'POST'});
+                const d = await res.json();
+                await fetchGuardOverview();
+                if (d.message) alert(d.message);
+            } finally {
+                btn.disabled = false; btn.innerText = orig;
+            }
+        }
+
+        async function approveIntegrityFileUI(filepath) {
+            const label = filepath === '__ALL__' ? 'TODOS los archivos actuales' : filepath;
+            const pw = prompt(`¿Aprobar "${label}" como nueva línea base legítima? Ingrese la clave maestra:`);
+            if (!pw) return;
+            const res = await fetch('/api/guard/integrity/approve', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({filepath, admin_password: pw})
+            });
+            const d = await res.json();
+            if (!res.ok || !d.ok) alert(d.message || d.detail || 'Error');
+            fetchGuardOverview();
+        }
+
+        function closeGuardPolicyModal() {
+            document.getElementById('guardPolicyModal').classList.remove('active');
+        }
+
+        async function openGuardPolicyModal() {
+            document.getElementById('gpFeedback').style.display = 'none';
+            document.getElementById('gpMasterPass').value = '';
+            if (!cachedGuardPolicy) await fetchGuardOverview();
+            const p = cachedGuardPolicy || {};
+            document.getElementById('gpSshMax').value = p.ssh_max_failures ?? 8;
+            document.getElementById('gpOdooMax').value = p.odoo_max_failures ?? 10;
+            document.getElementById('gpWindowMin').value = p.window_minutes ?? 10;
+            document.getElementById('gpBlockDur').value = p.block_duration_minutes ?? 60;
+            document.getElementById('gpHoneypotEnabled').checked = p.honeypot_enabled !== false;
+            document.getElementById('gpHoneypotHits').value = p.honeypot_hits_threshold ?? 2;
+            document.getElementById('guardPolicyModal').classList.add('active');
+        }
+
+        async function saveGuardPolicyUI(btn) {
+            const fb = document.getElementById('gpFeedback');
+            fb.style.display = 'none';
+            btn.disabled = true;
+            const policy = {
+                ssh_max_failures: parseInt(document.getElementById('gpSshMax').value || '8', 10),
+                odoo_max_failures: parseInt(document.getElementById('gpOdooMax').value || '10', 10),
+                window_minutes: parseInt(document.getElementById('gpWindowMin').value || '10', 10),
+                block_duration_minutes: parseInt(document.getElementById('gpBlockDur').value || '60', 10),
+                honeypot_enabled: document.getElementById('gpHoneypotEnabled').checked,
+                honeypot_hits_threshold: parseInt(document.getElementById('gpHoneypotHits').value || '2', 10),
+            };
+            try {
+                const res = await fetch('/api/guard/policy', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({admin_password: document.getElementById('gpMasterPass').value, policy})
+                });
+                const d = await res.json();
+                fb.style.display = 'block';
+                fb.style.background = (res.ok && d.ok) ? '#ecfdf5' : '#fde8e8';
+                fb.style.color = (res.ok && d.ok) ? '#065f46' : '#9b1c1c';
+                fb.innerText = d.message || d.detail || 'Error al guardar.';
+                if (res.ok && d.ok) await fetchGuardOverview();
+            } finally {
+                btn.disabled = false;
             }
         }
 

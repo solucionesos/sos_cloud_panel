@@ -162,6 +162,43 @@ def init_db() -> None:
                 );
                 CREATE INDEX IF NOT EXISTS idx_backup_runs_ts ON backup_runs(started_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_backup_runs_db ON backup_runs(db_name, started_at DESC);
+
+                CREATE TABLE IF NOT EXISTS blocked_ips (
+                    ip TEXT PRIMARY KEY,
+                    reason TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'manual',
+                    hits INTEGER NOT NULL DEFAULT 1,
+                    reoffenses INTEGER NOT NULL DEFAULT 0,
+                    blocked_at INTEGER NOT NULL,
+                    expires_at INTEGER NOT NULL DEFAULT 0,
+                    active INTEGER NOT NULL DEFAULT 1
+                );
+                CREATE INDEX IF NOT EXISTS idx_blocked_active ON blocked_ips(active, blocked_at DESC);
+
+                CREATE TABLE IF NOT EXISTS threat_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts INTEGER NOT NULL,
+                    ip TEXT NOT NULL,
+                    vector TEXT NOT NULL,
+                    severity TEXT NOT NULL DEFAULT 'warning',
+                    target TEXT NOT NULL DEFAULT '',
+                    action_taken TEXT NOT NULL DEFAULT 'observed',
+                    detail TEXT NOT NULL DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_threat_ts ON threat_events(ts DESC);
+                CREATE INDEX IF NOT EXISTS idx_threat_vector ON threat_events(vector, ts DESC);
+
+                CREATE TABLE IF NOT EXISTS host_integrity_baseline (
+                    filepath TEXT PRIMARY KEY,
+                    sha256 TEXT NOT NULL,
+                    mtime INTEGER NOT NULL DEFAULT 0,
+                    size_bytes INTEGER NOT NULL DEFAULT 0,
+                    first_seen INTEGER NOT NULL,
+                    last_checked INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'ok',
+                    current_sha256 TEXT NOT NULL DEFAULT '',
+                    detail TEXT NOT NULL DEFAULT ''
+                );
                 """
             )
             conn.commit()
@@ -691,6 +728,188 @@ def get_backup_summary_30d() -> Dict[str, Any]:
         }
 
 
+# --- Fase 4: Threat Guard, Blocked IPs & Host Integrity ---
+
+def insert_threat_event(
+    ip: str,
+    vector: str,
+    severity: str,
+    target: str,
+    action_taken: str,
+    detail: str,
+) -> None:
+    now = int(time.time())
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO threat_events (ts, ip, vector, severity, target, action_taken, detail)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (now, ip[:80], vector[:50], severity[:20], target[:180], action_taken[:30], detail[:400]),
+        )
+
+
+def list_threat_events(limit: int = 120, vector_filter: str = "") -> List[Dict[str, Any]]:
+    safe_limit = max(1, min(int(limit), 300))
+    with get_conn() as conn:
+        if vector_filter:
+            rows = conn.execute(
+                "SELECT * FROM threat_events WHERE vector = ? ORDER BY ts DESC, id DESC LIMIT ?",
+                (vector_filter, safe_limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM threat_events ORDER BY ts DESC, id DESC LIMIT ?",
+                (safe_limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_threat_summary_24h() -> Dict[str, int]:
+    cutoff = int(time.time()) - 86400
+    with get_conn() as conn:
+        total = conn.execute("SELECT COUNT(*) AS c FROM threat_events WHERE ts >= ?", (cutoff,)).fetchone()["c"]
+        ssh = conn.execute("SELECT COUNT(*) AS c FROM threat_events WHERE ts >= ? AND vector = 'ssh_bruteforce'", (cutoff,)).fetchone()["c"]
+        odoo = conn.execute("SELECT COUNT(*) AS c FROM threat_events WHERE ts >= ? AND vector = 'odoo_login'", (cutoff,)).fetchone()["c"]
+        web = conn.execute("SELECT COUNT(*) AS c FROM threat_events WHERE ts >= ? AND vector = 'web_honeypot'", (cutoff,)).fetchone()["c"]
+        active_blocks = conn.execute("SELECT COUNT(*) AS c FROM blocked_ips WHERE active = 1").fetchone()["c"]
+        return {
+            "events_24h": total,
+            "ssh_24h": ssh,
+            "odoo_24h": odoo,
+            "web_24h": web,
+            "active_blocks": active_blocks,
+        }
+
+
+def upsert_blocked_ip(
+    ip: str,
+    reason: str,
+    source: str,
+    duration_seconds: int,
+    hits: int = 1,
+) -> Dict[str, Any]:
+    now = int(time.time())
+    with get_conn() as conn:
+        prev = conn.execute("SELECT reoffenses, active FROM blocked_ips WHERE ip = ?", (ip,)).fetchone()
+        reoffenses = int(prev["reoffenses"]) + (1 if prev and prev["active"] == 0 else 0) if prev else 0
+        # Escalar castigo en reincidentes automáticos (hasta 24h)
+        if duration_seconds > 0 and reoffenses > 0 and source != "manual":
+            scaled = min(86400, duration_seconds * (2 ** min(reoffenses, 4)))
+        else:
+            scaled = duration_seconds
+        expires_at = (now + scaled) if scaled > 0 else 0
+
+        conn.execute(
+            """
+            INSERT INTO blocked_ips (ip, reason, source, hits, reoffenses, blocked_at, expires_at, active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+            ON CONFLICT(ip) DO UPDATE SET
+                reason = excluded.reason,
+                source = excluded.source,
+                hits = blocked_ips.hits + excluded.hits,
+                reoffenses = ?,
+                blocked_at = excluded.blocked_at,
+                expires_at = excluded.expires_at,
+                active = 1
+            """,
+            (ip.strip(), reason[:220], source[:40], max(1, hits), reoffenses, now, expires_at, reoffenses),
+        )
+        return {"ip": ip.strip(), "expires_at": expires_at, "reoffenses": reoffenses}
+
+
+def expire_old_blocks() -> List[str]:
+    now = int(time.time())
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT ip FROM blocked_ips WHERE active = 1 AND expires_at > 0 AND expires_at <= ?",
+            (now,),
+        ).fetchall()
+        expired_ips = [r["ip"] for r in rows]
+        if expired_ips:
+            conn.execute(
+                "UPDATE blocked_ips SET active = 0 WHERE active = 1 AND expires_at > 0 AND expires_at <= ?",
+                (now,),
+            )
+        return expired_ips
+
+
+def deactivate_blocked_ip(ip: str) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute("UPDATE blocked_ips SET active = 0 WHERE ip = ? AND active = 1", (ip.strip(),))
+        return cur.rowcount > 0
+
+
+def deactivate_all_blocked_ips() -> int:
+    with get_conn() as conn:
+        cur = conn.execute("UPDATE blocked_ips SET active = 0 WHERE active = 1")
+        return cur.rowcount
+
+
+def list_blocked_ips(only_active: bool = True) -> List[Dict[str, Any]]:
+    with get_conn() as conn:
+        if only_active:
+            rows = conn.execute(
+                "SELECT * FROM blocked_ips WHERE active = 1 ORDER BY blocked_at DESC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM blocked_ips ORDER BY active DESC, blocked_at DESC LIMIT 200"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_integrity_baselines() -> Dict[str, Dict[str, Any]]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM host_integrity_baseline ORDER BY filepath ASC").fetchall()
+        return {r["filepath"]: dict(r) for r in rows}
+
+
+def upsert_integrity_record(
+    filepath: str,
+    sha256: str,
+    mtime: int,
+    size_bytes: int,
+    status: str = "ok",
+    current_sha256: str = "",
+    detail: str = "",
+    approve_baseline: bool = False,
+) -> None:
+    now = int(time.time())
+    with get_conn() as conn:
+        existing = conn.execute("SELECT * FROM host_integrity_baseline WHERE filepath = ?", (filepath,)).fetchone()
+        if not existing or approve_baseline:
+            conn.execute(
+                """
+                INSERT INTO host_integrity_baseline (filepath, sha256, mtime, size_bytes, first_seen, last_checked, status, current_sha256, detail)
+                VALUES (?, ?, ?, ?, ?, ?, 'ok', ?, ?)
+                ON CONFLICT(filepath) DO UPDATE SET
+                    sha256 = excluded.sha256,
+                    mtime = excluded.mtime,
+                    size_bytes = excluded.size_bytes,
+                    last_checked = excluded.last_checked,
+                    status = 'ok',
+                    current_sha256 = excluded.sha256,
+                    detail = excluded.detail
+                """,
+                (filepath, sha256, mtime, size_bytes, existing["first_seen"] if existing else now, now, sha256, detail[:240]),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE host_integrity_baseline
+                SET last_checked = ?, status = ?, current_sha256 = ?, mtime = ?, size_bytes = ?, detail = ?
+                WHERE filepath = ?
+                """,
+                (now, status, current_sha256 or sha256, mtime, size_bytes, detail[:240], filepath),
+            )
+
+
+def remove_integrity_record(filepath: str) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM host_integrity_baseline WHERE filepath = ?", (filepath,))
+
+
 # --- Housekeeping ---
 
 def purge_expired_data(session_max_age: int = 86400 * 7, audit_retention_days: int = 180) -> Dict[str, int]:
@@ -700,10 +919,12 @@ def purge_expired_data(session_max_age: int = 86400 * 7, audit_retention_days: i
     uptime_cutoff = now - (14 * 86400)
     incidents_cutoff = now - (90 * 86400)
     backups_hist_cutoff = now - (180 * 86400)
+    threats_cutoff = now - (60 * 86400)
     with get_conn() as conn:
         c1 = conn.execute("DELETE FROM sessions WHERE created_at < ? OR (revoked = 1 AND last_seen < ?)", (sess_cutoff, now - 86400)).rowcount
         c2 = conn.execute("DELETE FROM audit_logs WHERE ts < ?", (audit_cutoff,)).rowcount
         c3 = conn.execute("DELETE FROM uptime_checks WHERE ts < ?", (uptime_cutoff,)).rowcount
         c4 = conn.execute("DELETE FROM incidents WHERE status = 'resolved' AND resolved_at > 0 AND resolved_at < ?", (incidents_cutoff,)).rowcount
         c5 = conn.execute("DELETE FROM backup_runs WHERE status != 'running' AND started_at < ?", (backups_hist_cutoff,)).rowcount
-    return {"purged_sessions": c1, "purged_audit_logs": c2, "purged_uptime": c3, "purged_incidents": c4, "purged_backup_runs": c5}
+        c6 = conn.execute("DELETE FROM threat_events WHERE ts < ?", (threats_cutoff,)).rowcount
+    return {"purged_sessions": c1, "purged_audit_logs": c2, "purged_uptime": c3, "purged_incidents": c4, "purged_backup_runs": c5, "purged_threats": c6}

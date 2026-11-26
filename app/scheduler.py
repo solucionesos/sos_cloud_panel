@@ -10,6 +10,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import health_monitor
 import security_scanner
 import storage
+import threat_guard
 
 _logger = logging.getLogger("sos_scheduler")
 _scheduler: Optional[BackgroundScheduler] = None
@@ -90,9 +91,25 @@ def sync_backup_schedule_job() -> None:
         _logger.warning("No se pudo sincronizar job de backups: %s", exc)
 
 
+def _safe_guard_job() -> None:
+    try:
+        threat_guard.run_threat_guard_cycle()
+    except Exception as exc:
+        _logger.warning("Error en job threat_guard: %s", exc)
+
+
+def _safe_integrity_job() -> None:
+    try:
+        threat_guard.run_host_integrity_check()
+    except Exception as exc:
+        _logger.warning("Error en job host_integrity: %s", exc)
+
+
 def _initial_warmup() -> None:
-    """Puebla el primer sondeo de Uptime, SSL y Escáner al arrancar sin bloquear Uvicorn."""
+    """Puebla el primer sondeo de Uptime, SSL, Integridad y Escáner al arrancar sin bloquear Uvicorn."""
     time.sleep(2)
+    _safe_guard_job()
+    _safe_integrity_job()
     _safe_uptime_job()
     _safe_ssl_job()
     _safe_thresholds_job()
@@ -110,6 +127,8 @@ def start_scheduler() -> BackgroundScheduler:
 
     sched = BackgroundScheduler(timezone="UTC")
     sched.add_job(_run_housekeeping, trigger="interval", minutes=60, id="panel_housekeeping", replace_existing=True, max_instances=1, coalesce=True)
+    sched.add_job(_safe_guard_job, trigger="interval", seconds=30, id="threat_guard_30s", replace_existing=True, max_instances=1, coalesce=True)
+    sched.add_job(_safe_integrity_job, trigger="interval", minutes=15, id="integrity_monitor_15m", replace_existing=True, max_instances=1, coalesce=True)
     sched.add_job(_safe_uptime_job, trigger="interval", minutes=1, id="uptime_monitor_1m", replace_existing=True, max_instances=1, coalesce=True)
     sched.add_job(_safe_thresholds_job, trigger="interval", minutes=5, id="host_thresholds_5m", replace_existing=True, max_instances=1, coalesce=True)
     sched.add_job(_safe_ssl_job, trigger="interval", hours=6, id="ssl_monitor_6h", replace_existing=True, max_instances=1, coalesce=True)
@@ -119,7 +138,7 @@ def start_scheduler() -> BackgroundScheduler:
     sync_backup_schedule_job()
 
     threading.Thread(target=_initial_warmup, name="sos-health-warmup", daemon=True).start()
-    _logger.info("APScheduler iniciado con 5 tareas programadas.")
+    _logger.info("APScheduler iniciado con 7 tareas programadas.")
     return sched
 
 
