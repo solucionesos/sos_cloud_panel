@@ -59,7 +59,8 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
                     admin_password: document.getElementById('actionPassword').value,
-                    confirm_name: document.getElementById('actionConfirmName').value
+                    confirm_name: document.getElementById('actionConfirmName').value,
+                    pg_container: pendingAction.pgContainer || ''
                 })
             });
             const data = await res.json().catch(() => ({message: 'Respuesta inválida del servidor.'}));
@@ -88,13 +89,15 @@
         }
     });
 
-    function confirmDropDatabase(dbName) {
+    function confirmDropDatabase(dbName, pgContainer = '') {
+        const pgInfo = pgContainer ? ` (en ${pgContainer})` : '';
         openActionModal({
             title: 'Eliminar base de datos',
-            desc: `Se eliminará DEFINITIVAMENTE la base de datos "${dbName}". Esta acción no se puede deshacer.`,
+            desc: `Se eliminará DEFINITIVAMENTE la base de datos "${dbName}"${pgInfo}. Esta acción no se puede deshacer.`,
             needName: true,
             btnColor: '#b91c1c',
             btnLabel: 'Eliminar BD',
+            pgContainer: pgContainer,
             url: `/api/databases/${encodeURIComponent(dbName)}/drop`
         });
     }

@@ -1,8 +1,9 @@
 from concurrent.futures import ThreadPoolExecutor
 import glob
+import json
 import os
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import docker
 import psycopg2
@@ -12,19 +13,188 @@ PG_HOST = os.environ.get("PG_HOST", "host.docker.internal")
 PG_PORT = int(os.environ.get("PG_PORT", "5433"))
 PG_USER = os.environ.get("PG_USER", "odoo")
 PG_PASSWORD = os.environ.get("PG_PASSWORD", "odoo")
+PG_DISCOVERY_MODE = os.environ.get("PG_DISCOVERY_MODE", "auto").strip().lower()
 DEFAULT_BASE_DOMAIN = os.environ.get("DEFAULT_BASE_DOMAIN", "solucionesos.com")
 NGINX_SITES_PATH = os.environ.get("NGINX_SITES_PATH", "/host_nginx/sites-enabled")
 
 
-def _get_pg_conn(dbname: str = "postgres"):
+def _get_pg_conn(
+    dbname: str = "postgres",
+    host: Optional[str] = None,
+    port: Optional[int] = None,
+    user: Optional[str] = None,
+    password: Optional[str] = None,
+):
     return psycopg2.connect(
-        host=PG_HOST,
-        port=PG_PORT,
-        user=PG_USER,
-        password=PG_PASSWORD,
+        host=host or PG_HOST,
+        port=port or PG_PORT,
+        user=user or PG_USER,
+        password=password if password is not None else PG_PASSWORD,
         dbname=dbname,
-        connect_timeout=4,
+        connect_timeout=3,
     )
+
+
+def _parse_container_env(container) -> Dict[str, str]:
+    env_dict: Dict[str, str] = {}
+    for item in (container.attrs.get("Config", {}).get("Env") or []):
+        if "=" in item:
+            k, v = item.split("=", 1)
+            env_dict[k] = v
+    return env_dict
+
+
+def _get_self_networks(client: docker.DockerClient) -> set:
+    hostname = os.environ.get("HOSTNAME", "")
+    if not hostname:
+        return set()
+    try:
+        me = client.containers.get(hostname)
+        return set((me.attrs.get("NetworkSettings", {}).get("Networks") or {}).keys())
+    except Exception:
+        return set()
+
+
+def discover_postgres_instances() -> List[Dict[str, Any]]:
+    """Descubre instancias PostgreSQL activas en Docker (o usa PG_HOST único si aplica)."""
+    default_instance = {
+        "container_name": "",
+        "compose_project": "",
+        "host": PG_HOST,
+        "port": PG_PORT,
+        "user": PG_USER,
+        "password": PG_PASSWORD,
+        "can_tcp": True,
+        "networks": set(),
+    }
+
+    if PG_DISCOVERY_MODE == "single":
+        return [default_instance]
+
+    instances: List[Dict[str, Any]] = []
+    try:
+        client = docker.from_env()
+        self_nets = _get_self_networks(client)
+
+        for c in client.containers.list(filters={"status": "running"}):
+            image_tags = c.image.tags if c.image.tags else [c.attrs.get("Config", {}).get("Image", "")]
+            image_str = (image_tags[0] if image_tags else "").lower()
+            name_lower = c.name.lower()
+
+            if ("postgres" not in image_str and "postgres" not in name_lower) or "pgadmin" in image_str or "pgadmin" in name_lower:
+                continue
+
+            env = _parse_container_env(c)
+            pg_user = env.get("POSTGRES_USER") or PG_USER
+            pg_password = env.get("POSTGRES_PASSWORD") if "POSTGRES_PASSWORD" in env else PG_PASSWORD
+            labels = c.attrs.get("Config", {}).get("Labels") or {}
+            compose_project = labels.get("com.docker.compose.project", "")
+
+            nets_dict = c.attrs.get("NetworkSettings", {}).get("Networks") or {}
+            c_nets = set(nets_dict.keys())
+
+            # Determinar mejor host/puerto TCP si es alcanzable directamente
+            ports_map = c.attrs.get("NetworkSettings", {}).get("Ports") or {}
+            host_port = None
+            for container_port, bindings in ports_map.items():
+                if container_port.startswith("5432/") and bindings:
+                    hp = bindings[0].get("HostPort")
+                    if hp and hp.isdigit():
+                        host_port = int(hp)
+                        break
+
+            shared_nets = self_nets & c_nets
+            if c.name == PG_HOST:
+                tcp_host, tcp_port, can_tcp = PG_HOST, PG_PORT, True
+            elif shared_nets:
+                first_net = next(iter(shared_nets))
+                ip_addr = (nets_dict.get(first_net) or {}).get("IPAddress") or c.name
+                tcp_host, tcp_port, can_tcp = ip_addr, 5432, True
+            elif host_port:
+                tcp_host, tcp_port, can_tcp = "host.docker.internal", host_port, True
+            else:
+                tcp_host, tcp_port, can_tcp = c.name, 5432, False
+
+            instances.append({
+                "container_name": c.name,
+                "compose_project": compose_project,
+                "host": tcp_host,
+                "port": tcp_port,
+                "user": pg_user,
+                "password": pg_password,
+                "can_tcp": can_tcp,
+                "networks": c_nets,
+            })
+    except Exception:
+        return [default_instance]
+
+    if not instances:
+        return [default_instance]
+
+    return sorted(instances, key=lambda x: x["container_name"])
+
+
+def _exec_psql_json(client: docker.DockerClient, container_name: str, user: str, password: str, dbname: str, query_sql: str) -> List[Dict[str, Any]]:
+    """Ejecuta una consulta SQL dentro del contenedor PostgreSQL y retorna filas como dicts."""
+    wrapped = f"SELECT COALESCE(json_agg(t), '[]'::json) FROM ({query_sql.rstrip(';')}) t;"
+    cmd = ["psql", "-U", user, "-d", dbname, "-t", "-A", "-c", wrapped]
+    exec_id = client.api.exec_create(
+        container_name,
+        cmd,
+        environment={"PGPASSWORD": password} if password else {},
+        stdout=True,
+        stderr=True,
+    )["Id"]
+    out_chunks = []
+    for stdout_chunk, _stderr_chunk in client.api.exec_start(exec_id, stream=True, demux=True):
+        if stdout_chunk:
+            out_chunks.append(stdout_chunk.decode("utf-8", errors="replace"))
+    exit_code = client.api.exec_inspect(exec_id).get("ExitCode")
+    if exit_code != 0:
+        raise RuntimeError(f"psql exited with {exit_code}")
+    raw = "".join(out_chunks).strip()
+    if not raw:
+        return []
+    return json.loads(raw)
+
+
+def _query_pg(
+    inst: Dict[str, Any],
+    dbname: str,
+    sql_query: str,
+    client: Optional[docker.DockerClient] = None,
+) -> List[Dict[str, Any]]:
+    """Consulta PostgreSQL por TCP si es alcanzable, o vía docker exec si está en red aislada."""
+    if inst.get("can_tcp"):
+        try:
+            conn = _get_pg_conn(
+                dbname=dbname,
+                host=inst["host"],
+                port=inst["port"],
+                user=inst["user"],
+                password=inst["password"],
+            )
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(sql_query)
+                rows = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            return rows
+        except Exception:
+            if not inst.get("container_name"):
+                raise
+
+    if inst.get("container_name"):
+        if client is None:
+            client = docker.from_env()
+        return _exec_psql_json(
+            client,
+            inst["container_name"],
+            inst["user"],
+            inst["password"],
+            dbname,
+            sql_query,
+        )
+    raise RuntimeError("No se pudo conectar a la instancia PostgreSQL.")
 
 
 def parse_nginx_domain_mapping() -> Dict[str, Any]:
@@ -108,6 +278,7 @@ def discover_odoo_containers(port_to_domains: Dict[int, List[str]]) -> List[Dict
         })
     return sorted(containers_info, key=lambda x: (not x["is_odoo"], x["name"]))
 
+
 def _read_single_container_stats(container) -> Dict[str, Any]:
     try:
         st = container.stats(stream=False)
@@ -166,25 +337,28 @@ def get_containers_stats() -> Dict[str, Dict[str, Any]]:
     return result
 
 
+def _discover_instance_databases(inst: Dict[str, Any], db_to_domain: Dict[str, str]) -> List[Dict[str, Any]]:
+    databases: List[Dict[str, Any]] = []
+    client = docker.from_env() if inst.get("container_name") else None
+    pg_container = inst.get("container_name") or ""
 
-def discover_odoo_databases(db_to_domain: Dict[str, str]) -> List[Dict[str, Any]]:
-    databases = []
     try:
-        conn = _get_pg_conn("postgres")
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
-                SELECT d.datname AS name,
-                       pg_size_pretty(pg_database_size(d.datname)) AS size_pretty,
-                       pg_database_size(d.datname) AS size_bytes
-                FROM pg_database d
-                WHERE d.datistemplate = false AND d.datname NOT IN ('postgres')
-                ORDER BY d.datname;
-            """)
-            rows = cur.fetchall()
-        conn.close()
+        rows = _query_pg(
+            inst,
+            "postgres",
+            """
+            SELECT d.datname AS name,
+                   pg_size_pretty(pg_database_size(d.datname)) AS size_pretty,
+                   pg_database_size(d.datname) AS size_bytes
+            FROM pg_database d
+            WHERE d.datistemplate = false AND d.datname NOT IN ('postgres')
+            ORDER BY d.datname
+            """,
+            client=client,
+        )
     except Exception as e:
         return [{
-            "name": "Error conectando a PostgreSQL",
+            "name": f"Error conectando a PostgreSQL ({pg_container or inst['host']})",
             "company_name": str(e),
             "version": "Error",
             "size_pretty": "0 MB",
@@ -192,6 +366,7 @@ def discover_odoo_databases(db_to_domain: Dict[str, str]) -> List[Dict[str, Any]
             "active_users_count": 0,
             "users": [],
             "admin_uid": 2,
+            "pg_container": pg_container,
         }]
 
     for row in rows:
@@ -206,59 +381,90 @@ def discover_odoo_databases(db_to_domain: Dict[str, str]) -> List[Dict[str, Any]
             "users": [],
             "admin_uid": 2,
             "company_name": dbname,
+            "pg_container": pg_container,
         }
         try:
-            db_conn = _get_pg_conn(dbname)
-            with db_conn.cursor(cursor_factory=RealDictCursor) as db_cur:
-                db_cur.execute("""
-                    SELECT EXISTS (
-                        SELECT 1 FROM information_schema.tables
-                        WHERE table_schema = 'public' AND table_name = 'ir_config_parameter'
-                    ) AS is_odoo;
-                """)
-                check = db_cur.fetchone()
-                if not check or not check["is_odoo"]:
-                    db_conn.close()
-                    continue
+            check = _query_pg(
+                inst,
+                dbname,
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name = 'ir_config_parameter'
+                ) AS is_odoo
+                """,
+                client=client,
+            )
+            if not check or not check[0].get("is_odoo"):
+                continue
 
-                db_cur.execute("SELECT value FROM ir_config_parameter WHERE key = 'web.base.url' LIMIT 1;")
-                url_row = db_cur.fetchone()
-                if url_row and url_row["value"]:
-                    val = url_row["value"].strip().rstrip("/")
-                    if "localhost" not in val and "127.0.0.1" not in val and ":8069" not in val:
-                        if val.startswith("http://") and DEFAULT_BASE_DOMAIN in val:
-                            val = "https://" + val[len("http://"):]
-                        db_info["base_url"] = val
+            url_rows = _query_pg(
+                inst,
+                dbname,
+                "SELECT value FROM ir_config_parameter WHERE key = 'web.base.url' LIMIT 1",
+                client=client,
+            )
+            if url_rows and url_rows[0].get("value"):
+                val = str(url_rows[0]["value"]).strip().rstrip("/")
+                if "localhost" not in val and "127.0.0.1" not in val and ":8069" not in val:
+                    if val.startswith("http://") and DEFAULT_BASE_DOMAIN in val:
+                        val = "https://" + val[len("http://"):]
+                    db_info["base_url"] = val
 
-                if dbname.lower() in db_to_domain:
-                    db_info["base_url"] = db_to_domain[dbname.lower()]
+            if dbname.lower() in db_to_domain:
+                db_info["base_url"] = db_to_domain[dbname.lower()]
 
-                db_cur.execute("SELECT latest_version FROM ir_module_module WHERE name = 'base' LIMIT 1;")
-                ver_row = db_cur.fetchone()
-                if ver_row and ver_row["latest_version"]:
-                    major = ".".join(ver_row["latest_version"].split(".")[:2])
-                    db_info["version"] = f"Odoo {major}"
+            ver_rows = _query_pg(
+                inst,
+                dbname,
+                "SELECT latest_version FROM ir_module_module WHERE name = 'base' LIMIT 1",
+                client=client,
+            )
+            if ver_rows and ver_rows[0].get("latest_version"):
+                major = ".".join(str(ver_rows[0]["latest_version"]).split(".")[:2])
+                db_info["version"] = f"Odoo {major}"
 
-                db_cur.execute("SELECT name FROM res_company ORDER BY id ASC LIMIT 1;")
-                comp_row = db_cur.fetchone()
-                if comp_row and comp_row["name"]:
-                    db_info["company_name"] = comp_row["name"]
+            comp_rows = _query_pg(
+                inst,
+                dbname,
+                "SELECT name FROM res_company ORDER BY id ASC LIMIT 1",
+                client=client,
+            )
+            if comp_rows and comp_rows[0].get("name"):
+                db_info["company_name"] = comp_rows[0]["name"]
 
-                db_cur.execute("""
-                    SELECT u.id, u.login, COALESCE(p.name, u.login) AS name
-                    FROM res_users u
-                    LEFT JOIN res_partner p ON u.partner_id = p.id
-                    WHERE u.active = true AND (u.share = false OR u.share IS NULL)
-                    ORDER BY CASE WHEN u.id = 2 THEN 0 ELSE 1 END, u.id ASC
-                    LIMIT 25;
-                """)
-                users = db_cur.fetchall()
-                db_info["users"] = users
-                db_info["active_users_count"] = len(users)
-                if users:
-                    db_info["admin_uid"] = users[0]["id"]
-            db_conn.close()
+            users = _query_pg(
+                inst,
+                dbname,
+                """
+                SELECT u.id, u.login, COALESCE(p.name, u.login) AS name
+                FROM res_users u
+                LEFT JOIN res_partner p ON u.partner_id = p.id
+                WHERE u.active = true AND (u.share = false OR u.share IS NULL)
+                ORDER BY CASE WHEN u.id = 2 THEN 0 ELSE 1 END, u.id ASC
+                LIMIT 25
+                """,
+                client=client,
+            )
+            db_info["users"] = users
+            db_info["active_users_count"] = len(users)
+            if users:
+                db_info["admin_uid"] = users[0]["id"]
             databases.append(db_info)
         except Exception:
             continue
     return databases
+
+
+def discover_odoo_databases(db_to_domain: Dict[str, str]) -> List[Dict[str, Any]]:
+    instances = discover_postgres_instances()
+    if len(instances) == 1:
+        return _discover_instance_databases(instances[0], db_to_domain)
+
+    all_dbs: List[Dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=min(8, len(instances))) as pool:
+        futures = [pool.submit(_discover_instance_databases, inst, db_to_domain) for inst in instances]
+        for fut in futures:
+            all_dbs.extend(fut.result())
+
+    return sorted(all_dbs, key=lambda d: (d["name"].startswith("Error"), d["name"].lower(), d.get("pg_container", "").lower()))

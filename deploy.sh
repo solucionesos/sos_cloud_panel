@@ -60,8 +60,14 @@ echo -e "${NC}"
 DETECTED_NET=$(docker network ls --format '{{.Name}}' | grep -E 'odoo|pg' | head -n 1 || true)
 DETECTED_NET="${DETECTED_NET:-odoo-net}"
 
-DETECTED_PG=$(docker ps --format '{{.Names}}' | grep -i 'postgres' | head -n 1 || true)
+ALL_PG_CONTAINERS=$(docker ps --format '{{.Names}}' | grep -i 'postgres' | paste -sd ',' - || true)
+PG_COUNT=$(docker ps --format '{{.Names}}' | grep -ic 'postgres' || true)
+DETECTED_PG=$(echo "$ALL_PG_CONTAINERS" | cut -d',' -f1)
 DETECTED_PG="${DETECTED_PG:-host.docker.internal}"
+
+if [[ "${PG_COUNT:-0}" -gt 1 ]]; then
+  log "Detectados $PG_COUNT contenedores PostgreSQL ($ALL_PG_CONTAINERS). Se activará descubrimiento Multi-PostgreSQL automático."
+fi
 
 # 3. Configurar .env si no existe
 if [[ -f .env ]]; then
@@ -109,7 +115,9 @@ else
   SSO_SECRET="$(openssl rand -hex 32)"
 
   PROTECTED_LIST="sos_cloud_panel"
-  if [[ "$IN_PG_HOST" != "host.docker.internal" ]]; then
+  if [[ -n "$ALL_PG_CONTAINERS" ]]; then
+    PROTECTED_LIST="sos_cloud_panel,$ALL_PG_CONTAINERS"
+  elif [[ "$IN_PG_HOST" != "host.docker.internal" ]]; then
     PROTECTED_LIST="sos_cloud_panel,$IN_PG_HOST"
   fi
 
@@ -120,6 +128,7 @@ PANEL_ADMIN_PASSWORD=$IN_PASS
 PANEL_SESSION_SECRET=$SESSION_SECRET
 SOS_SSO_SECRET=$SSO_SECRET
 
+PG_DISCOVERY_MODE=auto
 PG_HOST=$IN_PG_HOST
 PG_PORT=$IN_PG_PORT
 PG_USER=$IN_PG_USER

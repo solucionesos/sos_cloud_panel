@@ -223,7 +223,7 @@
             </div>
             <div class="fold-list" id="dbList">
                 {% for db in databases %}
-                <div class="fold-item" data-search="{{ db.name | lower }} {{ db.company_name | lower }} {{ db.version | lower }} {{ db.base_url | lower }}">
+                <div class="fold-item" data-search="{{ db.name | lower }} {{ db.company_name | lower }} {{ db.version | lower }} {{ db.base_url | lower }} {{ (db.pg_container or '') | lower }}">
                     <div class="fold-header" onclick="toggleFold(this.parentElement)">
                         <div class="fold-left">
                             <span class="chevron">▸</span>
@@ -233,6 +233,9 @@
                             </div>
                         </div>
                         <div class="fold-right">
+                            {% if db.pg_container %}
+                            <span class="pill" title="Instancia PostgreSQL">🐘 {{ db.pg_container }}</span>
+                            {% endif %}
                             <span class="pill pill-version">{{ db.version }}</span>
                             <span class="pill">💾 {{ db.size_pretty }}</span>
                             <span class="pill">👥 {{ db.active_users_count }} usuarios</span>
@@ -259,9 +262,9 @@
                             <button class="btn-sso" onclick="openSsoLogin('{{ db.name }}', 'url_{{ loop.index }}', 'uid_{{ loop.index }}')">⚡ Entrar como Admin (1-Clic)</button>
                             <a href="{{ db.base_url }}/web/login" target="_blank" class="btn-secondary">🔗 Abrir Web</a>
                             {% if not db.name.startswith('Error') %}
-                            <button class="btn-secondary" onclick="downloadBackup('{{ db.name }}', 'zip', this)">📦 Backup ZIP (con Filestore)</button>
-                            <button class="btn-secondary" onclick="downloadBackup('{{ db.name }}', 'dump', this)">🗄️ Backup Sin Filestore</button>
-                            <button class="btn-secondary" style="color:#b91c1c;" onclick="confirmDropDatabase('{{ db.name }}')">🗑️ Eliminar BD</button>
+                            <button class="btn-secondary" onclick="downloadBackup('{{ db.name }}', 'zip', this, '{{ db.pg_container or '' }}')">📦 Backup ZIP (con Filestore)</button>
+                            <button class="btn-secondary" onclick="downloadBackup('{{ db.name }}', 'dump', this, '{{ db.pg_container or '' }}')">🗄️ Backup Sin Filestore</button>
+                            <button class="btn-secondary" style="color:#b91c1c;" onclick="confirmDropDatabase('{{ db.name }}', '{{ db.pg_container or '' }}')">🗑️ Eliminar BD</button>
                             {% endif %}
                         </div>
                     </div>
@@ -388,12 +391,13 @@
             window.open(`/go/sso?db=${encodeURIComponent(dbName)}&base_url=${encodeURIComponent(baseUrl)}&uid=${encodeURIComponent(uid)}`, '_blank');
         }
         
-        async function downloadBackup(dbName, fmt, btn) {
+        async function downloadBackup(dbName, fmt, btn, pgContainer = '') {
             const origText = btn.innerText;
             btn.disabled = true;
             btn.innerText = '⏳ Generando backup...';
             try {
-                const res = await fetch(`/api/databases/${encodeURIComponent(dbName)}/backup?fmt=${encodeURIComponent(fmt)}`);
+                const pgParam = pgContainer ? `&pg_container=${encodeURIComponent(pgContainer)}` : '';
+                const res = await fetch(`/api/databases/${encodeURIComponent(dbName)}/backup?fmt=${encodeURIComponent(fmt)}${pgParam}`);
                 if (!res.ok) {
                     const err = await res.json().catch(() => ({ detail: `Error HTTP ${res.status}` }));
                     alert(err.detail || err.message || 'Error al generar backup.');

@@ -7,7 +7,7 @@ import shutil
 import tempfile
 import zipfile
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import docker
 from fastapi import APIRouter, HTTPException, Request
@@ -22,7 +22,41 @@ DB_NAME_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,63}$")
 PROTECTED_DATABASES = {"postgres", "template0", "template1"}
 
 
-def _find_postgres_container(client: docker.DockerClient):
+def _resolve_pg_instance(db_name: str, pg_container: str = "") -> Optional[Dict[str, Any]]:
+    instances = discovery.discover_postgres_instances()
+    if pg_container:
+        for inst in instances:
+            if inst.get("container_name") == pg_container:
+                return inst
+        return None
+
+    if len(instances) == 1:
+        return instances[0]
+
+    # Buscar automáticamente en qué instancia existe la base de datos
+    safe_db = db_name.replace("'", "''")
+    for inst in instances:
+        try:
+            rows = discovery._query_pg(
+                inst,
+                "postgres",
+                f"SELECT 1 AS ok FROM pg_database WHERE datname = '{safe_db}'",
+            )
+            if rows:
+                return inst
+        except Exception:
+            continue
+    return instances[0] if instances else None
+
+
+def _find_postgres_container(client: docker.DockerClient, preferred_name: str = ""):
+    if preferred_name:
+        try:
+            c = client.containers.get(preferred_name)
+            if c.status == "running":
+                return c
+        except Exception:
+            pass
     try:
         c = client.containers.get(discovery.PG_HOST)
         if c.status == "running":
@@ -33,7 +67,7 @@ def _find_postgres_container(client: docker.DockerClient):
     for c in client.containers.list(filters={"status": "running"}):
         image_tags = c.image.tags if c.image.tags else [c.attrs.get("Config", {}).get("Image", "")]
         image_str = (image_tags[0] if image_tags else "").lower()
-        if "postgres" in image_str or "postgres" in c.name.lower():
+        if ("postgres" in image_str or "postgres" in c.name.lower()) and "pgadmin" not in image_str:
             candidates.append(c)
     for c in candidates:
         if "central" in c.name.lower() or "16" in c.name.lower():
@@ -41,10 +75,23 @@ def _find_postgres_container(client: docker.DockerClient):
     return candidates[0] if candidates else None
 
 
-def _find_filestore_dir(client: docker.DockerClient, db_name: str) -> Optional[str]:
+def _find_filestore_dir(client: docker.DockerClient, db_name: str, inst: Optional[Dict[str, Any]] = None) -> Optional[str]:
     checked = set()
+    target_project = (inst or {}).get("compose_project") or ""
+    target_nets = (inst or {}).get("networks") or set()
+
+    def _container_priority(c) -> int:
+        labels = c.attrs.get("Config", {}).get("Labels") or {}
+        if target_project and labels.get("com.docker.compose.project") == target_project:
+            return 0
+        c_nets = set((c.attrs.get("NetworkSettings", {}).get("Networks") or {}).keys())
+        if target_nets and (target_nets & c_nets):
+            return 1
+        return 2
+
     try:
-        for c in client.containers.list(all=True):
+        containers = sorted(client.containers.list(all=True), key=_container_priority)
+        for c in containers:
             for m in (c.attrs.get("Mounts") or []):
                 src = m.get("Source") or ""
                 dest = m.get("Destination") or ""
@@ -72,31 +119,39 @@ def _find_filestore_dir(client: docker.DockerClient, db_name: str) -> Optional[s
     return None
 
 
-def _build_odoo_manifest(db_name: str) -> dict:
+def _build_odoo_manifest(db_name: str, inst: Optional[Dict[str, Any]] = None) -> dict:
     version, major_version, pg_version, modules = "18.0", "18.0", "16", {}
-    conn = None
+    if inst is None:
+        inst = {
+            "container_name": "",
+            "host": discovery.PG_HOST,
+            "port": discovery.PG_PORT,
+            "user": discovery.PG_USER,
+            "password": discovery.PG_PASSWORD,
+            "can_tcp": True,
+        }
     try:
-        conn = discovery._get_pg_conn(db_name)
-        with conn.cursor() as cur:
-            cur.execute("SELECT version();")
-            row = cur.fetchone()
-            if row and row[0]:
-                m = re.search(r"PostgreSQL\s+([0-9.]+)", row[0])
-                if m:
-                    pg_version = m.group(1)
-            cur.execute("SELECT latest_version FROM ir_module_module WHERE name = 'base' LIMIT 1;")
-            base_row = cur.fetchone()
-            if base_row and base_row[0]:
-                version = base_row[0]
-                major_version = ".".join(version.split(".")[:2])
-            cur.execute("SELECT name, latest_version FROM ir_module_module WHERE state = 'installed';")
-            for mod_name, mod_ver in cur.fetchall():
-                modules[mod_name] = mod_ver or version
+        ver_rows = discovery._query_pg(inst, db_name, "SELECT version() AS ver")
+        if ver_rows and ver_rows[0].get("ver"):
+            m = re.search(r"PostgreSQL\s+([0-9.]+)", str(ver_rows[0]["ver"]))
+            if m:
+                pg_version = m.group(1)
+
+        base_rows = discovery._query_pg(
+            inst, db_name, "SELECT latest_version FROM ir_module_module WHERE name = 'base' LIMIT 1"
+        )
+        if base_rows and base_rows[0].get("latest_version"):
+            version = str(base_rows[0]["latest_version"])
+            major_version = ".".join(version.split(".")[:2])
+
+        mod_rows = discovery._query_pg(
+            inst, db_name, "SELECT name, latest_version FROM ir_module_module WHERE state = 'installed'"
+        )
+        for mr in mod_rows:
+            modules[mr["name"]] = mr.get("latest_version") or version
     except Exception:
         pass
-    finally:
-        if conn:
-            conn.close()
+
     return {
         "odoo_dump": "1",
         "db_name": db_name,
@@ -108,10 +163,20 @@ def _build_odoo_manifest(db_name: str) -> dict:
     }
 
 
-def _run_pg_dump_to_file(client: docker.DockerClient, pg_container, db_name: str, fmt_flag: str, dest_path: str) -> None:
-    cmd = ["pg_dump", "-U", discovery.PG_USER, "--no-owner", fmt_flag, db_name]
+def _run_pg_dump_to_file(
+    client: docker.DockerClient,
+    pg_container,
+    db_name: str,
+    fmt_flag: str,
+    dest_path: str,
+    pg_user: str = "",
+    pg_password: str = "",
+) -> None:
+    user = pg_user or discovery.PG_USER
+    pwd = pg_password if pg_password != "" else discovery.PG_PASSWORD
+    cmd = ["pg_dump", "-U", user, "--no-owner", fmt_flag, db_name]
     exec_id = client.api.exec_create(
-        pg_container.id, cmd, environment={"PGPASSWORD": discovery.PG_PASSWORD}, stdout=True, stderr=True
+        pg_container.id, cmd, environment={"PGPASSWORD": pwd} if pwd else {}, stdout=True, stderr=True
     )["Id"]
     stderr_chunks = []
     with open(dest_path, "wb") as out_f:
@@ -126,7 +191,7 @@ def _run_pg_dump_to_file(client: docker.DockerClient, pg_container, db_name: str
 
 
 @router.get("/api/databases/{db_name}/backup")
-def download_database_backup(request: Request, db_name: str, fmt: str = "zip"):
+def download_database_backup(request: Request, db_name: str, fmt: str = "zip", pg_container: str = ""):
     from main import is_authenticated
     if not is_authenticated(request):
         raise HTTPException(status_code=401, detail="No autorizado")
@@ -135,10 +200,15 @@ def download_database_backup(request: Request, db_name: str, fmt: str = "zip"):
     if fmt not in ("zip", "dump"):
         raise HTTPException(status_code=400, detail="Formato inválido. Use 'zip' o 'dump'.")
 
+    inst = _resolve_pg_instance(db_name, pg_container.strip())
     client = docker.from_env()
-    pg_container = _find_postgres_container(client)
-    if not pg_container:
+    target_cname = (inst or {}).get("container_name") or pg_container.strip()
+    pg_container_obj = _find_postgres_container(client, target_cname)
+    if not pg_container_obj:
         raise HTTPException(status_code=500, detail="No se encontró un contenedor PostgreSQL activo para ejecutar pg_dump.")
+
+    pg_user = (inst or {}).get("user") or discovery.PG_USER
+    pg_password = (inst or {}).get("password") if inst is not None else discovery.PG_PASSWORD
 
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     tmp_dir = tempfile.mkdtemp(prefix="sos_backup_")
@@ -146,15 +216,15 @@ def download_database_backup(request: Request, db_name: str, fmt: str = "zip"):
         if fmt == "dump":
             filename = f"{db_name}_{ts}.dump"
             dump_path = os.path.join(tmp_dir, filename)
-            _run_pg_dump_to_file(client, pg_container, db_name, "-Fc", dump_path)
+            _run_pg_dump_to_file(client, pg_container_obj, db_name, "-Fc", dump_path, pg_user, pg_password)
             return FileResponse(
                 path=dump_path, media_type="application/octet-stream", filename=filename,
                 background=BackgroundTask(shutil.rmtree, tmp_dir, True),
             )
         dump_sql_path = os.path.join(tmp_dir, "dump.sql")
-        _run_pg_dump_to_file(client, pg_container, db_name, "-Fp", dump_sql_path)
-        manifest = _build_odoo_manifest(db_name)
-        filestore_dir = _find_filestore_dir(client, db_name)
+        _run_pg_dump_to_file(client, pg_container_obj, db_name, "-Fp", dump_sql_path, pg_user, pg_password)
+        manifest = _build_odoo_manifest(db_name, inst)
+        filestore_dir = _find_filestore_dir(client, db_name, inst)
         filename = f"{db_name}_{ts}.zip"
         zip_path = os.path.join(tmp_dir, filename)
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:

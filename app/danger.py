@@ -9,7 +9,7 @@ import logging
 import os
 import re
 import time
-from typing import Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import docker
 import psycopg2
@@ -77,6 +77,47 @@ async def _json(request: Request) -> dict:
         return {}
 
 
+def _resolve_pg_instance(db_name: str, pg_container: str = "") -> Optional[Dict[str, Any]]:
+    instances = discovery.discover_postgres_instances()
+    if pg_container:
+        for inst in instances:
+            if inst.get("container_name") == pg_container:
+                return inst
+        return None
+    if len(instances) == 1:
+        return instances[0]
+    safe_db = db_name.replace("'", "''")
+    for inst in instances:
+        try:
+            if discovery._query_pg(inst, "postgres", f"SELECT 1 AS ok FROM pg_database WHERE datname = '{safe_db}'"):
+                return inst
+        except Exception:
+            continue
+    return instances[0] if instances else None
+
+
+def _drop_via_docker_exec(container_name: str, user: str, password: str, db_name: str) -> None:
+    client = docker.from_env()
+    safe_lit = db_name.replace("'", "''")
+    safe_ident = '"' + db_name.replace('"', '""') + '"'
+    term_sql = (
+        f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+        f"WHERE datname = '{safe_lit}' AND pid <> pg_backend_pid();"
+    )
+    drop_sql = f"DROP DATABASE IF EXISTS {safe_ident};"
+    cmd = ["psql", "-U", user, "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", term_sql, "-c", drop_sql]
+    exec_id = client.api.exec_create(
+        container_name, cmd, environment={"PGPASSWORD": password} if password else {}, stdout=True, stderr=True
+    )["Id"]
+    stderr_chunks = []
+    for _out, err in client.api.exec_start(exec_id, stream=True, demux=True):
+        if err:
+            stderr_chunks.append(err.decode("utf-8", errors="replace"))
+    exit_code = client.api.exec_inspect(exec_id).get("ExitCode")
+    if exit_code != 0:
+        raise RuntimeError("".join(stderr_chunks).strip() or f"psql finalizó con código {exit_code}")
+
+
 @router.post("/api/databases/{db_name}/drop")
 async def drop_database(request: Request, db_name: str):
     data = await _json(request)
@@ -88,24 +129,48 @@ async def drop_database(request: Request, db_name: str):
     if str(data.get("confirm_name") or "") != db_name:
         return JSONResponse({"ok": False, "message": "El nombre escrito no coincide con la base de datos."}, status_code=400)
 
+    pg_container = str(data.get("pg_container") or "").strip()
+    inst = _resolve_pg_instance(db_name, pg_container)
+    if not inst:
+        return JSONResponse({"ok": False, "message": "No se encontró la instancia PostgreSQL."}, status_code=404)
+
     conn = None
     try:
-        conn = discovery._get_pg_conn("postgres")
-        conn.autocommit = True
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname = %s AND pid <> pg_backend_pid();",
-                (db_name,),
-            )
-            cur.execute(sql.SQL("DROP DATABASE IF EXISTS {};").format(sql.Identifier(db_name)))
-        _logger.warning("BD '%s' eliminada desde el panel (IP %s)", db_name, _client_ip(request))
+        if inst.get("can_tcp"):
+            try:
+                conn = discovery._get_pg_conn(
+                    "postgres",
+                    host=inst["host"],
+                    port=inst["port"],
+                    user=inst["user"],
+                    password=inst["password"],
+                )
+                conn.autocommit = True
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                        "WHERE datname = %s AND pid <> pg_backend_pid();",
+                        (db_name,),
+                    )
+                    cur.execute(sql.SQL("DROP DATABASE IF EXISTS {};").format(sql.Identifier(db_name)))
+            except Exception:
+                if not inst.get("container_name"):
+                    raise
+                _drop_via_docker_exec(inst["container_name"], inst["user"], inst["password"], db_name)
+        elif inst.get("container_name"):
+            _drop_via_docker_exec(inst["container_name"], inst["user"], inst["password"], db_name)
+        else:
+            return JSONResponse({"ok": False, "message": "Instancia PostgreSQL inaccesible."}, status_code=500)
+
+        _logger.warning("BD '%s' (%s) eliminada desde el panel (IP %s)", db_name, inst.get("container_name") or inst["host"], _client_ip(request))
         return JSONResponse({
             "ok": True,
             "message": f"Base de datos '{db_name}' eliminada. El filestore (adjuntos) no se borra automáticamente.",
         })
     except psycopg2.Error as e:
         return JSONResponse({"ok": False, "message": f"Error PostgreSQL: {e.pgerror or e}"}, status_code=500)
+    except Exception as e:
+        return JSONResponse({"ok": False, "message": f"Error eliminando BD: {e}"}, status_code=500)
     finally:
         if conn:
             conn.close()
